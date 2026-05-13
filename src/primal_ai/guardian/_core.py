@@ -11,7 +11,7 @@ import inspect
 import logging
 import threading
 from collections.abc import Awaitable, Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from typing import Any, cast
 
@@ -175,7 +175,23 @@ class Guardian:
         Default behavior is to log at WARNING on the ``primal_ai.guardian``
         logger. Replace with :meth:`set_escalation_handler` to route to a
         webhook, metrics sink, or Trajectory recorder.
+
+        If a ``Trajectory`` is passed (duck-typed via ``add_step``), a
+        ``POLICY_VIOLATION`` step is recorded on it before the handler is
+        invoked. Bare ``PolicyViolation`` objects flow through unchanged.
         """
+        if hasattr(violation_or_trajectory, "add_step"):
+            # Trajectory handoff — record a marker step so the recorded
+            # trajectory shows where escalation occurred. Never break
+            # escalation if the trajectory's add_step raises.
+            with suppress(Exception):
+                violation_or_trajectory.add_step(
+                    {
+                        "kind": "POLICY_VIOLATION",
+                        "data": {"escalated": True},
+                    },
+                )
+
         with _escalation_lock:
             handler = _escalation_handler
         if handler is None:

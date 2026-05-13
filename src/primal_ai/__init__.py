@@ -23,7 +23,13 @@ from primal_ai.guardian import (
     SchemaValidator,
 )
 from primal_ai.harness import Harness
-from primal_ai.trajectory import Trajectory
+from primal_ai.trajectory import (
+    Step,
+    StepKind,
+    Trajectory,
+    TrajectoryStatus,
+    set_default_store,
+)
 from primal_ai.verifier import Verifier
 
 __version__ = "0.0.1"
@@ -44,7 +50,11 @@ __all__ = [
     "PolicyViolation",
     "RateLimit",
     "SchemaValidator",
+    "Step",
+    "StepKind",
     "Trajectory",
+    "TrajectoryStatus",
     "Verifier",
     "__version__",
+    "set_default_store",
 ]

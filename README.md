@@ -28,6 +28,10 @@ pip install -e ".[dev]"
 
 ```python
 from primal_ai import Guardian, Trajectory
+from primal_ai.storage import InMemoryStorage
+
+def my_agent(query: str) -> str:
+    return f"results for {query!r}"
 
 # Wrap any agent with PRIMAL's reliability layer
 agent = Guardian.wrap(
@@ -37,10 +41,13 @@ agent = Guardian.wrap(
 
 # Every action is recorded into an auditable Trajectory
 with Trajectory.record(agent_id="search") as tr:
+    tr.record_input({"query": "flights to tokyo"})
     result = agent("Find me a flight to Tokyo under $800")
+    tr.record_output({"answer": result})
 
-# Replay, audit, or escalate on failure
+# Replay, audit, persist, or escalate on failure
 print(tr.summary())
+tr.save(InMemoryStorage())  # swap for SQLiteStorage/PostgresStorage in production
 ```
 
 ---
