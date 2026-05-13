@@ -537,14 +537,14 @@ The A2A wedge makes (2) materially more attractive than it was in v1.0 — proto
 ```
 PHASE: P1 — Extraction & Foundation
 WEEK: 2 of 4
-LAST COMPLETED: Atlas core MVP shipped (provider abstraction, health-aware routing, cascade with exponential cooldown, shared EventBus lift, 189/189 tests). Seven pillars represented; only Harness remains as a stub.
+LAST COMPLETED: Atlas bandit MVP shipped (Thompson sampling + UCB1, contextual partitioning by string key, Storage-backed persistence, 220/220 tests). Atlas is fully operational — deterministic routing as default, bandit selection opt-in.
 IN PROGRESS: —
 BLOCKED ON: —
-NEXT UP: Session 8 — Atlas bandit (Thompson sampling + UCB1, outcome learning, contextual scoring, bandit state persistence).
+NEXT UP: Session 9 — Harness + Continuity combined (plugin_health, scheduler, tool_rag registry without embeddings, portable user profile, BYO autolearn). Last pillar session.
 WAITLIST: 0
 GITHUB STARS: 0
 MRR: $0
-A2A AGENT CARD LIVE: NO (precursor shape locked in Conductor + Atlas — both A2A-friendly)
+A2A AGENT CARD LIVE: NO (precursor shapes locked in Conductor + Atlas)
 MCP SERVER LISTED IN AAIF REGISTRY: NO
 ```
 
