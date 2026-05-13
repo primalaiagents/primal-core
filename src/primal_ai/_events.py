@@ -1,4 +1,19 @@
-"""``Event`` + ``EventKind`` + ``EventBus`` — sync pub/sub for orchestration lifecycle events."""
+"""Shared ``Event`` / ``EventKind`` / ``EventBus`` + a process-wide ``default_bus``.
+
+Lifted out of the Conductor package in Session 7 so multiple pillars
+(Conductor and Atlas today, others later) publish to a single shared bus.
+Subscribers can listen for events from any pillar from one place.
+
+``EventKind`` values are namespaced by string prefix:
+
+  - ``AGENT_*``       — Conductor agent lifecycle
+  - ``DELEGATION_*``  — Conductor delegations
+  - ``PIPELINE_*``    — Conductor pipelines
+  - ``ROUTING_*``     — Atlas routing decisions
+  - ``CASCADE_*``     — Atlas cascade lifecycle
+
+Custom string kinds remain valid — the enum bundles canonical names only.
+"""
 
 from __future__ import annotations
 
@@ -13,17 +28,26 @@ from typing import Any
 
 
 class EventKind(StrEnum):
-    """Canonical event kinds the Conductor emits. Custom string kinds are also allowed."""
+    """Canonical event kinds emitted by PRIMAL pillars. Custom string kinds are also valid."""
 
+    # Conductor — agent registry
     AGENT_REGISTERED = "AGENT_REGISTERED"
     AGENT_UNREGISTERED = "AGENT_UNREGISTERED"
+    # Conductor — delegations
     DELEGATION_STARTED = "DELEGATION_STARTED"
     DELEGATION_COMPLETED = "DELEGATION_COMPLETED"
     DELEGATION_FAILED = "DELEGATION_FAILED"
+    # Conductor — pipelines
     PIPELINE_STARTED = "PIPELINE_STARTED"
     PIPELINE_STEP_COMPLETED = "PIPELINE_STEP_COMPLETED"
     PIPELINE_COMPLETED = "PIPELINE_COMPLETED"
     PIPELINE_FAILED = "PIPELINE_FAILED"
+    # Atlas — routing + cascade
+    ROUTING_DECIDED = "ROUTING_DECIDED"
+    CASCADE_STARTED = "CASCADE_STARTED"
+    CASCADE_ATTEMPT = "CASCADE_ATTEMPT"
+    CASCADE_COMPLETED = "CASCADE_COMPLETED"
+    CASCADE_FAILED = "CASCADE_FAILED"
 
 
 def _new_event_id() -> str:
@@ -73,10 +97,9 @@ class EventBus:
     """Thread-safe synchronous pub/sub.
 
     ``subscribe(kind=None, handler)`` returns a subscription id; passing
-    ``None`` for ``kind`` is a wildcard (handler receives every event).
-    ``publish(event)`` invokes all matching handlers in registration order
-    and silently swallows any handler exception — handlers must not be
-    able to break the publisher or starve sibling subscribers.
+    ``None`` for ``kind`` is a wildcard. ``publish(event)`` invokes every
+    matching handler in registration order; handler exceptions are
+    suppressed so one broken subscriber can't poison the others.
 
     Async ``EventBus`` is documented as Phase 2 work; the MVP is sync only.
 
@@ -84,8 +107,7 @@ class EventBus:
         >>> from primal_ai import Event, EventBus, EventKind
         >>> bus = EventBus()
         >>> received = []
-        >>> bus.subscribe(EventKind.DELEGATION_STARTED, received.append)
-        '...'
+        >>> _ = bus.subscribe(EventKind.DELEGATION_STARTED, received.append)
         >>> bus.publish(Event(kind=EventKind.DELEGATION_STARTED.value, payload={}))
     """
 
@@ -132,4 +154,9 @@ class EventBus:
                 handler(event)
 
 
-__all__ = ["Event", "EventBus", "EventKind", "Handler"]
+# Process-wide default bus. Multiple pillars (Conductor, Atlas, ...) all
+# publish here so a single subscription sees cross-pillar lifecycle events.
+default_bus = EventBus()
+
+
+__all__ = ["Event", "EventBus", "EventKind", "Handler", "default_bus"]

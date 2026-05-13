@@ -1,34 +1,49 @@
-"""Atlas — model and tool routing with bandits and failure-aware cascades.
+"""Atlas — smart-routing layer across providers (models, APIs, local agents).
 
-Decides *which* model or tool to use for *which* task at *which* moment.
-Uses multi-armed bandit exploration to learn what works, plus a cooldown
-cascade so failing providers get sidelined automatically.
+The MVP (Session 7) covers provider registration, capability / tag-based
+discovery, deterministic health-aware routing, and an exponential-backoff
+cascade. The bandit / cost-aware ranking layer arrives in Session 8 — the
+:class:`primal_ai.atlas.bandit.Bandit` stub is in place so its eventual
+behavior plugs in behind the existing public surface.
+
+Atlas reuses Conductor's shared :class:`~primal_ai._events.EventBus`
+(``Atlas.event_bus is Conductor.event_bus``) so a single subscription sees
+events from every pillar. It also reads the same trajectory ``ContextVar``
+that Conductor uses, recording a ``ROUTING_DECISION`` step into the open
+``Trajectory`` for every call.
+
+Example:
+    >>> from primal_ai import Atlas, BYOProvider, ProviderInfo
+    >>> Atlas.register_provider(
+    ...     BYOProvider(
+    ...         name="echo",
+    ...         call=lambda task, **kw: f"echoed: {task}",
+    ...         info=ProviderInfo(name="echo", capabilities=("chat",)),
+    ...     ),
+    ... )
+    >>> name, result = Atlas.invoke("hi")
+    >>> name, result
+    ('echo', 'echoed: hi')
 """
 
 from __future__ import annotations
 
-from typing import Any
+from primal_ai.atlas._decision import RoutingDecision, RoutingStatus
+from primal_ai.atlas._health import ProviderHealth
+from primal_ai.atlas._provider import BYOProvider, Provider, ProviderInfo
+from primal_ai.atlas.cascade import Cascade, CascadeResult
+from primal_ai.atlas.router import Atlas, register_provider, unregister_provider
 
-
-class Atlas:
-    """Model + tool router with bandit-driven selection.
-
-    Routes a request to the best provider given recent performance,
-    latency, cost, and current health. Falls back through a configured
-    cascade when the chosen provider fails.
-
-    Example:
-        provider = Atlas.route(task="summarize", candidates=["gpt-4o", "haiku"])
-
-    NOTE: Stub only. Full implementation extracted from karis_atlas.py in Phase 2.
-    """
-
-    @classmethod
-    def route(
-        cls,
-        task: str,
-        candidates: list[str] | None = None,
-        context: dict[str, Any] | None = None,
-    ) -> str:
-        """Route a task to the best candidate provider. STUB."""
-        raise NotImplementedError("Atlas.route will be implemented in Phase 2")
+__all__ = [
+    "Atlas",
+    "BYOProvider",
+    "Cascade",
+    "CascadeResult",
+    "Provider",
+    "ProviderHealth",
+    "ProviderInfo",
+    "RoutingDecision",
+    "RoutingStatus",
+    "register_provider",
+    "unregister_provider",
+]

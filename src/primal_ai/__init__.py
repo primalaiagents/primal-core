@@ -6,7 +6,19 @@ Guardian, Conductor, Trajectory, Continuity, Verifier, Atlas, Harness.
 
 from __future__ import annotations
 
-from primal_ai.atlas import Atlas
+from primal_ai.atlas import (
+    Atlas,
+    BYOProvider,
+    Cascade,
+    CascadeResult,
+    Provider,
+    ProviderHealth,
+    ProviderInfo,
+    RoutingDecision,
+    RoutingStatus,
+    register_provider,
+    unregister_provider,
+)
 from primal_ai.conductor import (
     Agent,
     AgentCard,
@@ -68,8 +80,11 @@ __all__ = [
     "AnyOf",
     "Atlas",
     "BYOLLMJudge",
+    "BYOProvider",
     "BlockList",
     "Capability",
+    "Cascade",
+    "CascadeResult",
     "Conductor",
     "Continuity",
     "DelegationResult",
@@ -88,8 +103,13 @@ __all__ = [
     "PipelineStep",
     "Policy",
     "PolicyViolation",
+    "Provider",
+    "ProviderHealth",
+    "ProviderInfo",
     "RateLimit",
     "RegexMatchVerifier",
+    "RoutingDecision",
+    "RoutingStatus",
     "RuleBasedVerifier",
     "SchemaValidator",
     "Step",
@@ -102,7 +122,9 @@ __all__ = [
     "VerifierLayer",
     "__version__",
     "register_agent",
+    "register_provider",
     "register_verifier",
     "set_default_store",
     "unregister_agent",
+    "unregister_provider",
 ]

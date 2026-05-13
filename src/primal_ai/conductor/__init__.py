@@ -32,11 +32,11 @@ Example:
 
 from __future__ import annotations
 
+from primal_ai._events import Event, EventBus, EventKind
 from primal_ai.conductor._agent import Agent
 from primal_ai.conductor._card import AgentCard, Capability
 from primal_ai.conductor._core import Conductor, register_agent, unregister_agent
 from primal_ai.conductor._delegation import DelegationResult, DelegationStatus
-from primal_ai.conductor._events import Event, EventBus, EventKind
 from primal_ai.conductor._pipeline import Pipeline, PipelineStep
 
 __all__ = [

@@ -66,6 +66,23 @@ verdict = Verifier.audit(
 print(verdict["status"])  # PASS / FAIL / UNCERTAIN
 ```
 
+Route across providers (your wired-up models, APIs, or local agents). Atlas
+ships health-aware selection + an exponential-backoff cascade; the bandit
+learning layer arrives in Session 8.
+
+```python
+from primal_ai import Atlas, BYOProvider, Cascade, ProviderInfo
+
+def good(task, **kw):  return f"OK: {task}"
+def flaky(task, **kw): raise RuntimeError("upstream broke")
+
+Atlas.register_provider(BYOProvider("primary", flaky, ProviderInfo(name="primary")))
+Atlas.register_provider(BYOProvider("backup",  good,  ProviderInfo(name="backup")))
+
+result = Cascade(providers=["primary", "backup"]).run("hello")
+print(result.status.value, result.chosen)   # SUCCESS backup
+```
+
 Orchestrate agent-to-agent delegation and linear pipelines via Conductor.
 Handoffs auto-record into the active Trajectory:
 

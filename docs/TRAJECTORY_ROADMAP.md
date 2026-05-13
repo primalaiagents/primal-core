@@ -14,6 +14,7 @@ are commercial differentiators deferred to Phase 2+ hardening.
 - [ ] Causal-graph rendering helpers (for the Inspector UI)
 - [ ] Time-travel debugger surface (step backward/forward in a saved trajectory)
 - [ ] Cross-agent trajectory propagation via Conductor (W3C trace-context style).
+- [ ] Cost/latency rollups across ROUTING_DECISION steps (Atlas integration).
 
 ## Phase 3+ (productization)
 - [ ] Distributed trajectories across A2A agent boundaries (W3C trace-context propagation)

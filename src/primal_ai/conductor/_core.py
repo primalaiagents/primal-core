@@ -20,11 +20,11 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from primal_ai._events import Event, EventBus, EventKind, default_bus
 from primal_ai._jsonschema import first_error
 from primal_ai._trajectory_context import current_trajectory
 from primal_ai.conductor._card import AgentCard, Capability
 from primal_ai.conductor._delegation import DelegationResult, DelegationStatus
-from primal_ai.conductor._events import Event, EventBus, EventKind
 from primal_ai.conductor._registry import AgentRegistry
 
 if TYPE_CHECKING:
@@ -32,8 +32,10 @@ if TYPE_CHECKING:
 
 # Module-level singletons. Tests reset them between runs by direct manipulation
 # (unregister_agent / event_bus.unsubscribe), so there's no global "clear all".
+# The event bus is the process-wide ``default_bus`` so Atlas (and any future
+# pillar) publishes to the same surface a Conductor subscriber listens on.
 _REGISTRY = AgentRegistry()
-_EVENT_BUS = EventBus()
+_EVENT_BUS: EventBus = default_bus
 
 
 def register_agent(agent: Agent) -> None:

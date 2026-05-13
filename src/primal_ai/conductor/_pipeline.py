@@ -15,9 +15,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from primal_ai._events import Event, EventKind
 from primal_ai.conductor._core import Conductor
 from primal_ai.conductor._delegation import DelegationStatus
-from primal_ai.conductor._events import Event, EventKind
 
 
 @dataclass(frozen=True)

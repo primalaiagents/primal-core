@@ -26,6 +26,9 @@ class StepKind(StrEnum):
         AGENT_HANDOFF:                    emitted by ``Conductor.delegate`` for
                                           every inter-agent delegation that
                                           happens inside a trajectory.
+        ROUTING_DECISION:                 emitted by ``Atlas.route`` for every
+                                          provider-selection decision (chosen,
+                                          skipped, unhealthy, no candidates).
     """
 
     INPUT = "INPUT"
@@ -38,6 +41,7 @@ class StepKind(StrEnum):
     OUTPUT = "OUTPUT"
     POLICY_VIOLATION = "POLICY_VIOLATION"
     AGENT_HANDOFF = "AGENT_HANDOFF"
+    ROUTING_DECISION = "ROUTING_DECISION"
 
 
 def _new_step_id() -> str:

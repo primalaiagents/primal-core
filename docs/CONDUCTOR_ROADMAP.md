@@ -26,6 +26,7 @@ The following are deferred to Phase 2+.
 - [ ] AAIF registry listing
 
 ## Phase 3+ (productization)
+- [ ] Smart agent selection delegated to Atlas (capability + bandit + cost-aware ranking) — Atlas ships its bandit in Phase 1 Session 8.
 - [ ] Smart agent selection (delegated to Atlas — capability + bandit + cost)
 - [ ] Conversation graph visualization (Inspector UI)
 - [ ] Cost-aware routing across agents (not just models)
