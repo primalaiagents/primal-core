@@ -4,18 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "primal-ai"
-version = "0.0.1"
-description = "The reliability and interoperability layer for AI agents. A2A-native. MCP-bridged."
+version = "0.1.0"
+description = "The reliability and interoperability layer for AI agents."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-authors = [{ name = "K", email = "k@primalaiagents.com" }]
+authors = [{ name = "Kunal Chetri", email = "kunalchetri1990@gmail.com" }]
 keywords = ["ai", "agents", "reliability", "observability", "a2a", "mcp"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = []
 
@@ -25,6 +29,8 @@ dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.5"]
 [project.urls]
 Homepage = "https://primalaiagents.com"
 Repository = "https://github.com/primalaiagents/primal-core"
+Issues = "https://github.com/primalaiagents/primal-core/issues"
+Changelog = "https://github.com/primalaiagents/primal-core/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/primal_ai"]
