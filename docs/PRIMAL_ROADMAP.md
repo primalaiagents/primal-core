@@ -537,14 +537,14 @@ The A2A wedge makes (2) materially more attractive than it was in v1.0 — proto
 ```
 PHASE: P1 — Extraction & Foundation
 WEEK: 2 of 4
-LAST COMPLETED: Atlas bandit MVP shipped (Thompson sampling + UCB1, contextual partitioning by string key, Storage-backed persistence, 220/220 tests). Atlas is fully operational — deterministic routing as default, bandit selection opt-in.
+LAST COMPLETED: Harness + Continuity MVPs shipped (health monitoring, tool registry, interval scheduler, portable user profiles, BYO autolearn, 268/268 tests). ALL SEVEN PILLARS LIVE. Phase 1 lib portion DONE.
 IN PROGRESS: —
 BLOCKED ON: —
-NEXT UP: Session 9 — Harness + Continuity combined (plugin_health, scheduler, tool_rag registry without embeddings, portable user profile, BYO autolearn). Last pillar session.
+NEXT UP: Session 10 — Phase 1 wrap: PyPI release prep (0.1.0), README polish, landing page at primalaiagents.com (Next.js + Tailwind on Cloudflare Pages), waitlist signup.
 WAITLIST: 0
 GITHUB STARS: 0
 MRR: $0
-A2A AGENT CARD LIVE: NO (precursor shapes locked in Conductor + Atlas)
+A2A AGENT CARD LIVE: NO (precursor shapes locked across Conductor + Atlas)
 MCP SERVER LISTED IN AAIF REGISTRY: NO
 ```
 
