@@ -537,14 +537,14 @@ The A2A wedge makes (2) materially more attractive than it was in v1.0 — proto
 ```
 PHASE: P1 — Extraction & Foundation
 WEEK: 1 of 4
-LAST COMPLETED: Verifier MVP shipped (3-layer audit, BYO LLM judge, shared JSON Schema, trajectory-aware, 116/116 tests). Five pillars live; full Guardian→Trajectory→SQLite→Verifier loop functional.
+LAST COMPLETED: Conductor MVP shipped (agent registry, capability-based delegation, linear pipelines, event bus, A2A AgentCard precursor, Trajectory contextvar bridge, 152/152 tests). Six of seven pillars live.
 IN PROGRESS: —
 BLOCKED ON: —
-NEXT UP: Session 6 — Conductor MVP (agent-to-agent delegation) OR Atlas MVP (smart routing). Decide at session start.
+NEXT UP: Session 7 — Atlas MVP (smart routing: model_router.py donor, 2,493 lines — biggest extraction yet, may span 2 sessions).
 WAITLIST: 0
 GITHUB STARS: 0
 MRR: $0
-A2A AGENT CARD LIVE: NO
+A2A AGENT CARD LIVE: NO (precursor shape locked in Conductor; wire format is Phase 2.5)
 MCP SERVER LISTED IN AAIF REGISTRY: NO
 ```
 
