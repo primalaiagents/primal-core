@@ -23,6 +23,7 @@ from typing import Any
 from primal_ai._events import Event, EventKind
 from primal_ai._trajectory_context import current_trajectory
 from primal_ai.atlas._decision import RoutingStatus
+from primal_ai.atlas.bandit import BanditOutcome, _safe_update
 from primal_ai.atlas.router import Atlas
 
 
@@ -218,17 +219,37 @@ class Cascade:
             self._publish_attempt(cascade_id, attempt)
             return attempt
 
-        del context  # MVP cascade ignores per-attempt routing context.
+        bandit_ctx_key = (
+            "" if context is None else str(context.get("bandit_context_key") or "")
+        )
         try:
             output = provider.invoke(task, **kwargs)
         except Exception as exc:  # noqa: BLE001 — convert any exception to FAILED
             self._apply_exponential_cooldown(name)
+            _safe_update(
+                Atlas.get_selector(),
+                BanditOutcome(
+                    provider_name=name,
+                    success=False,
+                    reward=0.0,
+                    context_key=bandit_ctx_key,
+                ),
+            )
             attempt = _Attempt(name, RoutingStatus.FAILED, f"{type(exc).__name__}: {exc}")
             self._publish_attempt(cascade_id, attempt)
             return attempt
 
         if health is not None:
             health.record_success()
+        _safe_update(
+            Atlas.get_selector(),
+            BanditOutcome(
+                provider_name=name,
+                success=True,
+                reward=1.0,
+                context_key=bandit_ctx_key,
+            ),
+        )
         attempt = _Attempt(name, RoutingStatus.SUCCESS, None, output=output)
         self._publish_attempt(cascade_id, attempt)
         return attempt

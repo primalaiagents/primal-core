@@ -7,7 +7,10 @@ Guardian, Conductor, Trajectory, Continuity, Verifier, Atlas, Harness.
 from __future__ import annotations
 
 from primal_ai.atlas import (
+    ArmState,
     Atlas,
+    Bandit,
+    BanditOutcome,
     BYOProvider,
     Cascade,
     CascadeResult,
@@ -16,7 +19,10 @@ from primal_ai.atlas import (
     ProviderInfo,
     RoutingDecision,
     RoutingStatus,
+    ThompsonBandit,
+    UCB1Bandit,
     register_provider,
+    register_selector,
     unregister_provider,
 )
 from primal_ai.conductor import (
@@ -78,9 +84,12 @@ __all__ = [
     "AllOf",
     "AllowList",
     "AnyOf",
+    "ArmState",
     "Atlas",
     "BYOLLMJudge",
     "BYOProvider",
+    "Bandit",
+    "BanditOutcome",
     "BlockList",
     "Capability",
     "Cascade",
@@ -114,8 +123,10 @@ __all__ = [
     "SchemaValidator",
     "Step",
     "StepKind",
+    "ThompsonBandit",
     "Trajectory",
     "TrajectoryStatus",
+    "UCB1Bandit",
     "Verdict",
     "VerdictStatus",
     "Verifier",
@@ -123,6 +134,7 @@ __all__ = [
     "__version__",
     "register_agent",
     "register_provider",
+    "register_selector",
     "register_verifier",
     "set_default_store",
     "unregister_agent",

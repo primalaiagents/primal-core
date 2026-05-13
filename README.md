@@ -67,8 +67,8 @@ print(verdict["status"])  # PASS / FAIL / UNCERTAIN
 ```
 
 Route across providers (your wired-up models, APIs, or local agents). Atlas
-ships health-aware selection + an exponential-backoff cascade; the bandit
-learning layer arrives in Session 8.
+ships health-aware selection + an exponential-backoff cascade, with optional
+bandit-driven selection (Thompson sampling or UCB1) layered on top.
 
 ```python
 from primal_ai import Atlas, BYOProvider, Cascade, ProviderInfo
@@ -81,6 +81,22 @@ Atlas.register_provider(BYOProvider("backup",  good,  ProviderInfo(name="backup"
 
 result = Cascade(providers=["primary", "backup"]).run("hello")
 print(result.status.value, result.chosen)   # SUCCESS backup
+```
+
+Opt into bandit-driven selection — Atlas.invoke automatically feeds success /
+failure outcomes back into the bandit's posteriors so it learns over time:
+
+```python
+from primal_ai import Atlas, ThompsonBandit
+from primal_ai.storage import SQLiteStorage
+
+Atlas.set_selector(ThompsonBandit(seed=42))
+# Subsequent Atlas.invoke() calls now learn from success / failure automatically.
+name, result = Atlas.invoke("summarize this", context={"capability": "chat"})
+
+# Persist learned state at shutdown:
+with SQLiteStorage("atlas-bandit.db") as store:
+    Atlas.get_selector().save(store)
 ```
 
 Orchestrate agent-to-agent delegation and linear pipelines via Conductor.

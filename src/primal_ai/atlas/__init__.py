@@ -31,12 +31,23 @@ from __future__ import annotations
 from primal_ai.atlas._decision import RoutingDecision, RoutingStatus
 from primal_ai.atlas._health import ProviderHealth
 from primal_ai.atlas._provider import BYOProvider, Provider, ProviderInfo
+from primal_ai.atlas.bandit import (
+    ArmState,
+    Bandit,
+    BanditOutcome,
+    ThompsonBandit,
+    UCB1Bandit,
+    register_selector,
+)
 from primal_ai.atlas.cascade import Cascade, CascadeResult
 from primal_ai.atlas.router import Atlas, register_provider, unregister_provider
 
 __all__ = [
+    "ArmState",
     "Atlas",
     "BYOProvider",
+    "Bandit",
+    "BanditOutcome",
     "Cascade",
     "CascadeResult",
     "Provider",
@@ -44,6 +55,9 @@ __all__ = [
     "ProviderInfo",
     "RoutingDecision",
     "RoutingStatus",
+    "ThompsonBandit",
+    "UCB1Bandit",
     "register_provider",
+    "register_selector",
     "unregister_provider",
 ]

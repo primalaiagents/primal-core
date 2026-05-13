@@ -48,6 +48,16 @@ class RoutingDecision:
         duration_ms: ``(ended_at - started_at) * 1000``.
         context: Snapshot of the context dict passed to ``route``
             (capability/tags hints, etc.).
+        selector_name: Optional — set when a ``Bandit`` selector picked
+            the provider (Session 8+). Absent under deterministic
+            routing. ``to_dict`` omits this key entirely when ``None``
+            so downstream Trajectory step data carries an "absent, not
+            null" signal for the deterministic path.
+        arm_scores: Optional — per-candidate score (Thompson sample or
+            UCB1 score) that drove the bandit's choice.
+        exploration_factor: Optional — magnitude of the exploration
+            term applied to the chosen arm (UCB1) or posterior std-dev
+            (Thompson).
     """
 
     decision_id: str
@@ -61,10 +71,19 @@ class RoutingDecision:
     ended_at: float
     duration_ms: float
     context: dict[str, Any] = field(default_factory=dict)
+    selector_name: str | None = None
+    arm_scores: dict[str, float] | None = None
+    exploration_factor: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable view."""
-        return {
+        """Return a JSON-serializable view.
+
+        Selector keys (``selector_name`` / ``arm_scores`` / ``exploration_factor``)
+        are omitted from the output dict when ``None`` so that a downstream
+        Trajectory step reflects "absent under deterministic routing" rather
+        than "null". Bandit-driven decisions emit all three.
+        """
+        out: dict[str, Any] = {
             "decision_id": self.decision_id,
             "task": self.task,
             "chosen_provider": self.chosen_provider,
@@ -77,10 +96,18 @@ class RoutingDecision:
             "duration_ms": self.duration_ms,
             "context": dict(self.context),
         }
+        if self.selector_name is not None:
+            out["selector_name"] = self.selector_name
+        if self.arm_scores is not None:
+            out["arm_scores"] = dict(self.arm_scores)
+        if self.exploration_factor is not None:
+            out["exploration_factor"] = self.exploration_factor
+        return out
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> RoutingDecision:
         """Rebuild a ``RoutingDecision`` from a ``to_dict`` payload."""
+        arm_scores_raw = payload.get("arm_scores")
         return cls(
             decision_id=str(payload["decision_id"]),
             task=str(payload.get("task") or ""),
@@ -96,6 +123,9 @@ class RoutingDecision:
             ended_at=float(payload.get("ended_at") or 0.0),
             duration_ms=float(payload.get("duration_ms") or 0.0),
             context=dict(payload.get("context") or {}),
+            selector_name=payload.get("selector_name"),
+            arm_scores=dict(arm_scores_raw) if arm_scores_raw is not None else None,
+            exploration_factor=payload.get("exploration_factor"),
         )
 
 

@@ -11,6 +11,7 @@ candidates, unhealthy providers — all return a structured outcome.
 
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from contextlib import suppress
@@ -22,11 +23,21 @@ from primal_ai.atlas._decision import RoutingDecision, RoutingStatus
 from primal_ai.atlas._health import ProviderHealth
 from primal_ai.atlas._provider import Provider, ProviderInfo
 from primal_ai.atlas._registry import ProviderRegistry
+from primal_ai.atlas.bandit import (
+    Bandit,
+    BanditOutcome,
+    _safe_update,
+    resolve_selector,
+)
 
 # Module-level singletons. Reset between tests via ``Atlas.reset_health``
 # / ``unregister_provider``; there is no global "clear all" by design.
 _REGISTRY = ProviderRegistry()
 _EVENT_BUS: EventBus = default_bus
+
+# Active selector for bandit-driven routing. ``None`` → deterministic.
+_active_selector: Bandit | None = None
+_selector_lock = threading.Lock()
 
 
 def register_provider(provider: Provider) -> None:
@@ -124,6 +135,44 @@ class Atlas:
         _REGISTRY.reset_health(name)
 
     # ──────────────────────────────────────────────────────────────────
+    # Bandit selector surface
+    # ──────────────────────────────────────────────────────────────────
+
+    @classmethod
+    def set_selector(cls, selector: Bandit | str | None) -> None:
+        """Install a default bandit selector (or revert to deterministic with ``None``).
+
+        Accepts a ``Bandit`` instance, a registered selector name string
+        (``"thompson"``, ``"ucb1"``, or anything added via
+        :func:`primal_ai.atlas.bandit.register_selector`), or ``None``.
+        """
+        if selector is None:
+            resolved: Bandit | None = None
+        elif isinstance(selector, str):
+            resolved = resolve_selector(selector)
+        else:
+            resolved = selector
+        with _selector_lock:
+            global _active_selector  # noqa: PLW0603 — single module-level slot
+            _active_selector = resolved
+
+    @classmethod
+    def get_selector(cls) -> Bandit | None:
+        """Return the currently-installed default selector, or ``None``."""
+        with _selector_lock:
+            return _active_selector
+
+    @classmethod
+    def feedback(cls, outcome: BanditOutcome) -> None:
+        """Forward a ``BanditOutcome`` to the active selector.
+
+        Convenience for callers that score provider outputs after the
+        fact (for example, a Verifier verdict produced post-hoc). When no
+        selector is active, the call is silently a no-op.
+        """
+        _safe_update(cls.get_selector(), outcome)
+
+    # ──────────────────────────────────────────────────────────────────
     # Routing
     # ──────────────────────────────────────────────────────────────────
 
@@ -181,12 +230,32 @@ class Atlas:
         if provider is None or health is None:
             return decision.chosen_provider, None
 
+        selector = _resolve_selector_for_call(context)
+        bandit_ctx_key = _bandit_context_key(context)
         try:
             result = provider.invoke(task, **kwargs)
         except Exception:  # noqa: BLE001 — convert any exception to a failure record
             health.record_failure(cooldown_seconds=_DEFAULT_FAILURE_COOLDOWN_S)
+            _safe_update(
+                selector,
+                BanditOutcome(
+                    provider_name=decision.chosen_provider,
+                    success=False,
+                    reward=0.0,
+                    context_key=bandit_ctx_key,
+                ),
+            )
             return decision.chosen_provider, None
         health.record_success()
+        _safe_update(
+            selector,
+            BanditOutcome(
+                provider_name=decision.chosen_provider,
+                success=True,
+                reward=1.0,
+                context_key=bandit_ctx_key,
+            ),
+        )
         return decision.chosen_provider, result
 
     # ──────────────────────────────────────────────────────────────────
@@ -254,7 +323,12 @@ class Atlas:
             else:
                 skipped.append((p.name, "unhealthy"))
 
-        # Step 4: pick.
+        # Step 4: pick. Honor the bandit selector when one is active for this call.
+        selector = _resolve_selector_for_call(ctx)
+        selector_name: str | None = None
+        arm_scores: dict[str, float] | None = None
+        exploration_factor: float | None = None
+
         if not pool and (candidates is not None or capability is not None or tags):
             status = RoutingStatus.NO_CANDIDATES
             chosen: str | None = None
@@ -267,6 +341,18 @@ class Atlas:
             status = RoutingStatus.ALL_UNHEALTHY
             chosen = None
             reason = "every matching provider is in cooldown"
+        elif selector is not None:
+            healthy_names = [p.name for p in healthy]
+            chosen, arm_scores, exploration_factor = _select_via_bandit(
+                selector, healthy_names, ctx,
+            )
+            selector_name = getattr(selector, "name", type(selector).__name__)
+            if chosen is None:
+                status = RoutingStatus.NO_CANDIDATES
+                reason = f"selector {selector_name!r} returned no choice"
+            else:
+                status = RoutingStatus.SUCCESS
+                reason = None
         else:
             status = RoutingStatus.SUCCESS
             chosen = healthy[0].name
@@ -286,6 +372,9 @@ class Atlas:
             ended_at=ended,
             duration_ms=duration_ms,
             context=ctx,
+            selector_name=selector_name,
+            arm_scores=arm_scores,
+            exploration_factor=exploration_factor,
         )
 
     @staticmethod
@@ -311,6 +400,56 @@ class Atlas:
 # Default cooldown applied on a single ``Atlas.invoke`` failure. Cascade
 # overrides this with its own exponential-backoff policy.
 _DEFAULT_FAILURE_COOLDOWN_S: float = 30.0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Selector resolution helpers
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _resolve_selector_for_call(context: dict[str, Any] | None) -> Bandit | None:
+    """Pick the selector for this call. Per-call override beats the global default.
+
+    ``context["selector"]`` may be a string (resolved via the bandit
+    registry) or a ``Bandit`` instance. ``None`` or absent falls back to
+    ``Atlas.get_selector()``.
+    """
+    if context is not None:
+        override = context.get("selector")
+        if isinstance(override, str):
+            return resolve_selector(override)
+        # The runtime check via the ``Bandit`` Protocol gives mypy the
+        # narrowing it needs; non-Bandit values fall through.
+        if override is not None and isinstance(override, Bandit):
+            return override
+    return Atlas.get_selector()
+
+
+def _bandit_context_key(context: dict[str, Any] | None) -> str:
+    """Extract the partition key for contextual bandits from a routing context."""
+    if not context:
+        return ""
+    key = context.get("bandit_context_key")
+    return "" if key is None else str(key)
+
+
+def _select_via_bandit(
+    selector: Bandit,
+    candidates: list[str],
+    context: dict[str, Any],
+) -> tuple[str | None, dict[str, float] | None, float | None]:
+    """Invoke the selector and harvest per-arm scores when the selector exposes them.
+
+    Concrete built-ins (``ThompsonBandit``, ``UCB1Bandit``) expose
+    ``select_with_metadata`` so the trajectory can record the scoring
+    detail. Custom selectors that only implement ``select`` work too —
+    we just don't record the scores.
+    """
+    rich = getattr(selector, "select_with_metadata", None)
+    if rich is not None:
+        chosen, scores, exploration = rich(candidates, context)
+        return chosen, dict(scores) if scores else None, exploration
+    return selector.select(candidates, context), None, None
 
 
 __all__ = ["Atlas", "register_provider", "unregister_provider"]

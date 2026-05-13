@@ -623,20 +623,6 @@ def test_cascade_lifecycle_events_fire_in_order() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Bandit stub
-# ──────────────────────────────────────────────────────────────────────────
-
-
-def test_bandit_select_raises_not_implemented_with_session_8_message() -> None:
-    """The Session-8 ``Bandit`` is deliberately unimplemented in Session 7."""
-    from primal_ai.atlas.bandit import Bandit
-
-    with pytest.raises(NotImplementedError) as exc:
-        Bandit().select([], {})
-    assert "Session 8" in str(exc.value)
-
-
-# ──────────────────────────────────────────────────────────────────────────
 # Concurrent isolation
 # ──────────────────────────────────────────────────────────────────────────
 
