@@ -66,6 +66,33 @@ verdict = Verifier.audit(
 print(verdict["status"])  # PASS / FAIL / UNCERTAIN
 ```
 
+Orchestrate agent-to-agent delegation and linear pipelines via Conductor.
+Handoffs auto-record into the active Trajectory:
+
+```python
+from primal_ai import AgentCard, Capability, Conductor, Pipeline, PipelineStep
+
+class Search:
+    name = "search"
+    card = AgentCard(name="search", description="...",
+                     capabilities=(Capability(name="search", description="..."),))
+    def invoke(self, input): return {"hits": [f"hit for {input}"]}
+
+class Summarize:
+    name = "summarize"
+    card = AgentCard(name="summarize", description="...",
+                     capabilities=(Capability(name="summarize", description="..."),))
+    def invoke(self, input): return {"summary": f"summary of {input}"}
+
+Conductor.register_agent(Search())
+Conductor.register_agent(Summarize())
+result = Pipeline(name="search-then-summarize", steps=[
+    PipelineStep(name="find", agent_name="search"),
+    PipelineStep(name="condense", agent_name="summarize"),
+]).run("flights to tokyo")
+print(result["_final"])
+```
+
 ---
 
 ## The Seven Pillars

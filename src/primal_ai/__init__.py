@@ -7,7 +7,21 @@ Guardian, Conductor, Trajectory, Continuity, Verifier, Atlas, Harness.
 from __future__ import annotations
 
 from primal_ai.atlas import Atlas
-from primal_ai.conductor import Conductor
+from primal_ai.conductor import (
+    Agent,
+    AgentCard,
+    Capability,
+    Conductor,
+    DelegationResult,
+    DelegationStatus,
+    Event,
+    EventBus,
+    EventKind,
+    Pipeline,
+    PipelineStep,
+    register_agent,
+    unregister_agent,
+)
 from primal_ai.continuity import Continuity
 from primal_ai.guardian import (
     AllOf,
@@ -47,21 +61,31 @@ from primal_ai.verifier import (
 __version__ = "0.0.1"
 
 __all__ = [
+    "Agent",
+    "AgentCard",
     "AllOf",
     "AllowList",
     "AnyOf",
     "Atlas",
     "BYOLLMJudge",
     "BlockList",
+    "Capability",
     "Conductor",
     "Continuity",
+    "DelegationResult",
+    "DelegationStatus",
     "DollarCap",
     "DomainVerifier",
+    "Event",
+    "EventBus",
+    "EventKind",
     "Guardian",
     "Harness",
     "JSONSchemaVerifier",
     "LLMJudge",
     "PIIRedact",
+    "Pipeline",
+    "PipelineStep",
     "Policy",
     "PolicyViolation",
     "RateLimit",
@@ -77,6 +101,8 @@ __all__ = [
     "Verifier",
     "VerifierLayer",
     "__version__",
+    "register_agent",
     "register_verifier",
     "set_default_store",
+    "unregister_agent",
 ]

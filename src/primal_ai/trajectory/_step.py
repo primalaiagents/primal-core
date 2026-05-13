@@ -23,6 +23,9 @@ class StepKind(StrEnum):
         LLM_CALL, LLM_RESULT:             paired model invocations.
         ERROR, RETRY:                     failure and recovery markers.
         POLICY_VIOLATION:                 emitted by ``Guardian.escalate``.
+        AGENT_HANDOFF:                    emitted by ``Conductor.delegate`` for
+                                          every inter-agent delegation that
+                                          happens inside a trajectory.
     """
 
     INPUT = "INPUT"
@@ -34,6 +37,7 @@ class StepKind(StrEnum):
     RETRY = "RETRY"
     OUTPUT = "OUTPUT"
     POLICY_VIOLATION = "POLICY_VIOLATION"
+    AGENT_HANDOFF = "AGENT_HANDOFF"
 
 
 def _new_step_id() -> str:

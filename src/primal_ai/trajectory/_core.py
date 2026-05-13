@@ -12,9 +12,11 @@ import time
 import traceback
 import uuid
 from collections.abc import Callable, Iterator
+from contextvars import Token
 from types import TracebackType
 from typing import Any
 
+from primal_ai._trajectory_context import current_trajectory
 from primal_ai.storage import Storage
 from primal_ai.trajectory._status import TrajectoryStatus
 from primal_ai.trajectory._step import Step, StepKind
@@ -94,6 +96,8 @@ class Trajectory:
         # Per-instance lock for add_step so concurrent recorders (e.g. a
         # threaded agent) don't interleave list mutations.
         self._steps_lock = threading.Lock()
+        # Token returned by ``ContextVar.set`` on __enter__, consumed on __exit__.
+        self._context_token: Token[Any] | None = None
 
     # ──────────────────────────────────────────────────────────────────
     # Construction / context manager
@@ -119,6 +123,10 @@ class Trajectory:
         self.started_at = time.time()
         self._monotonic_start = time.monotonic()
         self.status = TrajectoryStatus.RUNNING
+        # Publish self as the active trajectory for this context (thread or
+        # async task). Conductor.delegate reads this to record AGENT_HANDOFF
+        # steps without either pillar reaching into the other.
+        self._context_token = current_trajectory.set(self)
         return self
 
     def __exit__(
@@ -127,6 +135,12 @@ class Trajectory:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
+        # Clear the context-var first so any escalation handler that runs
+        # during shutdown can't accidentally record into a closing trajectory.
+        if self._context_token is not None:
+            current_trajectory.reset(self._context_token)
+            self._context_token = None
+
         if exc is not None:
             self.record_error(exc)
             self.status = TrajectoryStatus.FAILED

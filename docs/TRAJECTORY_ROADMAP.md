@@ -13,6 +13,7 @@ are commercial differentiators deferred to Phase 2+ hardening.
 - [ ] Trajectory diffing: compare two runs of the same agent on the same input
 - [ ] Causal-graph rendering helpers (for the Inspector UI)
 - [ ] Time-travel debugger surface (step backward/forward in a saved trajectory)
+- [ ] Cross-agent trajectory propagation via Conductor (W3C trace-context style).
 
 ## Phase 3+ (productization)
 - [ ] Distributed trajectories across A2A agent boundaries (W3C trace-context propagation)
