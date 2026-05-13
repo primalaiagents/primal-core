@@ -126,6 +126,22 @@ result = Pipeline(name="search-then-summarize", steps=[
 print(result["_final"])
 ```
 
+Register tools with Harness, persist user preferences with Continuity. All
+seven pillars are now operational.
+
+```python
+from primal_ai import Continuity, Harness, ToolInfo
+from primal_ai.storage import SQLiteStorage
+
+Harness.register_tool(
+    ToolInfo(name="search", description="search the web", tags=("web",)),
+)
+
+with SQLiteStorage("primal.db") as store:
+    profile = Continuity.update("user-k", "language", "en", source="user", store=store)
+    print(profile.get("language"))
+```
+
 ---
 
 ## The Seven Pillars

@@ -1,27 +1,52 @@
-"""Harness — health checks, scheduling, tool discovery, and dynamic loading.
+"""Harness — runtime substrate: health monitoring, tool registry, interval scheduler.
 
-The runtime substrate that keeps PRIMAL agents alive: liveness probes,
-periodic jobs, MCP-style tool discovery (Tool RAG), and hot-loading of
-new agents/tools without restart.
+The MVP exposes three independent subsystems behind a shared facade:
+
+  - :class:`HealthMonitor` — pluggable health checks with worst-grade
+    aggregation. A raising check becomes ``UNHEALTHY`` automatically.
+  - :class:`ToolRegistry` — substring + tag-based tool discovery without
+    embeddings. Optional ``Storage`` persistence. Embeddings ship as an
+    optional extra (``pip install primal-ai[discovery]``) in Phase 2.
+  - :class:`Scheduler` — single-thread, interval-based job runner.
+    Exceptions never propagate. Cron syntax + async paths are Phase 2.
+
+All three publish lifecycle events on the shared ``default_bus`` so
+external observers see Harness activity from the same subscription that
+catches Conductor / Atlas events.
+
+Example:
+    >>> from primal_ai import Harness, ToolInfo
+    >>> Harness.register_tool(
+    ...     ToolInfo(name="search", description="search the web", tags=("web",)),
+    ... )
+    >>> [t.name for t in Harness.list_tools() if t.name == "search"]
+    ['search']
 """
 
 from __future__ import annotations
 
-from typing import Any
+from primal_ai.harness._core import Harness
+from primal_ai.harness.discovery import ToolInfo, ToolRegistry
+from primal_ai.harness.health import (
+    HealthCheck,
+    HealthCheckFn,
+    HealthMonitor,
+    HealthStatus,
+)
+from primal_ai.harness.loader import register_tool, unregister_tool
+from primal_ai.harness.scheduler import JobStatus, ScheduledJob, Scheduler
 
-
-class Harness:
-    """Runtime substrate for agents and tools. STUB.
-
-    NOTE: Stub only. Full implementation extracted from karis_harness.py in Phase 2.
-    """
-
-    @classmethod
-    def start(cls, config: dict[str, Any] | None = None) -> None:
-        """Start the harness runtime. STUB."""
-        raise NotImplementedError("Harness.start will be implemented in Phase 2")
-
-    @classmethod
-    def stop(cls) -> None:
-        """Stop the harness runtime. STUB."""
-        raise NotImplementedError("Harness.stop will be implemented in Phase 2")
+__all__ = [
+    "Harness",
+    "HealthCheck",
+    "HealthCheckFn",
+    "HealthMonitor",
+    "HealthStatus",
+    "JobStatus",
+    "ScheduledJob",
+    "Scheduler",
+    "ToolInfo",
+    "ToolRegistry",
+    "register_tool",
+    "unregister_tool",
+]

@@ -11,6 +11,10 @@ Subscribers can listen for events from any pillar from one place.
   - ``PIPELINE_*``    — Conductor pipelines
   - ``ROUTING_*``     — Atlas routing decisions
   - ``CASCADE_*``     — Atlas cascade lifecycle
+  - ``TOOL_*``        — Harness tool registry
+  - ``SCHEDULED_*``   — Harness scheduler
+  - ``HEALTH_*``      — Harness health monitor
+  - ``PROFILE_*``     — Continuity user profile
 
 Custom string kinds remain valid — the enum bundles canonical names only.
 """
@@ -48,6 +52,14 @@ class EventKind(StrEnum):
     CASCADE_ATTEMPT = "CASCADE_ATTEMPT"
     CASCADE_COMPLETED = "CASCADE_COMPLETED"
     CASCADE_FAILED = "CASCADE_FAILED"
+    # Harness — tools, scheduler, health
+    TOOL_REGISTERED = "TOOL_REGISTERED"
+    TOOL_UNREGISTERED = "TOOL_UNREGISTERED"
+    SCHEDULED_JOB_RUN = "SCHEDULED_JOB_RUN"
+    HEALTH_CHECK_RUN = "HEALTH_CHECK_RUN"
+    # Continuity — user profile
+    PROFILE_UPDATED = "PROFILE_UPDATED"
+    PROFILE_DELETED = "PROFILE_DELETED"
 
 
 def _new_event_id() -> str:

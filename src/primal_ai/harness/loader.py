@@ -1,26 +1,31 @@
-"""Harness loader — dynamic registration and hot-loading of agents/tools.
+"""Tool registration helpers — module-level shortcuts forwarding to the Harness singleton.
 
-Picks up new agent or tool definitions from disk / a registry and makes
-them callable without restarting the harness.
+Kept thin on purpose. The real registry lives at ``Harness.tools``; these
+helpers exist so users can ``from primal_ai import register_tool`` without
+naming the facade.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from primal_ai.harness.discovery import ToolInfo
+    from primal_ai.storage import Storage
 
 
-class Loader:
-    """Dynamic agent / tool loader. STUB.
+def register_tool(tool: ToolInfo, *, store: Storage | None = None) -> None:
+    """Module-level shortcut for ``Harness.register_tool``."""
+    from primal_ai.harness._core import Harness
 
-    NOTE: Stub only. Full implementation extracted in Phase 2.
-    """
+    Harness.register_tool(tool, store=store)
 
-    @classmethod
-    def load(cls, spec: str | dict[str, Any]) -> Any:
-        """Load an agent or tool from a path, URI, or spec dict. STUB."""
-        raise NotImplementedError("Loader.load will be implemented in Phase 2")
 
-    @classmethod
-    def unload(cls, name: str) -> None:
-        """Unload a previously registered agent or tool. STUB."""
-        raise NotImplementedError("Loader.unload will be implemented in Phase 2")
+def unregister_tool(name: str, *, store: Storage | None = None) -> None:
+    """Module-level shortcut for ``Harness.unregister_tool``."""
+    from primal_ai.harness._core import Harness
+
+    Harness.unregister_tool(name, store=store)
+
+
+__all__ = ["register_tool", "unregister_tool"]
