@@ -28,7 +28,7 @@ pip install -e ".[dev]"
 
 ```python
 from primal_ai import Guardian, Trajectory
-from primal_ai.storage import InMemoryStorage
+from primal_ai.storage import SQLiteStorage
 
 def my_agent(query: str) -> str:
     return f"results for {query!r}"
@@ -47,7 +47,10 @@ with Trajectory.record(agent_id="search") as tr:
 
 # Replay, audit, persist, or escalate on failure
 print(tr.summary())
-tr.save(InMemoryStorage())  # swap for SQLiteStorage/PostgresStorage in production
+
+# Durable persistence — WAL-mode SQLite, no external dependencies
+with SQLiteStorage("primal.db") as store:
+    tr.save(store)
 ```
 
 ---
