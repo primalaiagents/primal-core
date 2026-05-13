@@ -53,6 +53,19 @@ with SQLiteStorage("primal.db") as store:
     tr.save(store)
 ```
 
+Audit the trajectory through any combination of verifier layers — rule-based,
+LLM-judge (BYO model), or domain-specific (JSON Schema, regex, your own):
+
+```python
+from primal_ai import Verifier, JSONSchemaVerifier
+
+verdict = Verifier.audit(
+    tr,
+    layers=[JSONSchemaVerifier(schema={"type": "object", "required": ["answer"]})],
+)
+print(verdict["status"])  # PASS / FAIL / UNCERTAIN
+```
+
 ---
 
 ## The Seven Pillars

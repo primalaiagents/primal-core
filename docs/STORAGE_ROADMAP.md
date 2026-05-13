@@ -24,3 +24,4 @@ following are deferred to Phase 2+ hardening.
 - We don't build a full ORM — Storage is intentionally key/value
 - We don't query inside JSON values — that's a Postgres-feature when we get there, not a Protocol promise
 - We don't ship a migration tool for cross-backend moves (separate concern)
+- We don't silently coerce non-JSON types — callers encode at the boundary.
