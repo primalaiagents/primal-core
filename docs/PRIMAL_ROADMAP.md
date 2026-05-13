@@ -537,10 +537,10 @@ The A2A wedge makes (2) materially more attractive than it was in v1.0 — proto
 ```
 PHASE: P1 — Extraction & Foundation
 WEEK: 1 of 4
-LAST COMPLETED: Guardian MVP shipped (6 built-ins, sync+async, DSL, dry-run, 31/31 tests, mypy strict, ruff clean)
+LAST COMPLETED: Trajectory MVP shipped (9 step kinds, replay, Guardian handoff, 59/59 tests). M2 demo path now functional end-to-end.
 IN PROGRESS: —
 BLOCKED ON: —
-NEXT UP: Trajectory MVP (Session 3) — pairs with Guardian for the M2 milestone
+NEXT UP: Session 4 — Storage backends (SQLite first, Postgres + Redis to follow) OR Verifier MVP. Decide at session start.
 WAITLIST: 0
 GITHUB STARS: 0
 MRR: $0
