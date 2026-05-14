@@ -535,18 +535,19 @@ The A2A wedge makes (2) materially more attractive than it was in v1.0 — proto
 **Single source of truth. Update at end of every session.**
 
 ```
-PHASE: P1 — Extraction & Foundation
+PHASE: P1 — Extraction & Foundation — DONE
 WEEK: 2 of 4
-LAST COMPLETED: PRIMAL 0.1.0 SHIPPED TO PYPI. pip install primal-ai is live worldwide. Tag v0.1.0 pushed. CHANGELOG.md + polished README in place. All seven pillars publicly available with 268 tests, zero runtime deps, Apache 2.0.
+LAST COMPLETED: primalaiagents.com IS LIVE. PRIMAL 0.1.0 on PyPI + landing page deployed (Next.js 16 static export on Cloudflare Pages, primal-waitlist Worker → Resend Audience). SSL active on apex + www. HTTP→HTTPS redirect. Full Phase 1 surface is now public.
 IN PROGRESS: —
 BLOCKED ON: —
-NEXT UP: Session 10b — Landing page at primalaiagents.com (Next.js + Tailwind on Cloudflare Pages, waitlist signup, wolf logo, seven pillars layout).
+NEXT UP: Phase 2 begins. First decision (Session 11 start): which hardening item to tackle first — OTel span emission across pillars, async paths (route/invoke/delegate), or first-party Howl LLM judge as `pip install primal-ai[howl]` optional extra.
 WAITLIST: 0
 GITHUB STARS: 0
 MRR: $0
-A2A AGENT CARD LIVE: NO (precursor shapes locked)
+A2A AGENT CARD LIVE: NO (precursor shapes locked across Conductor + Atlas)
 MCP SERVER LISTED IN AAIF REGISTRY: NO
 PYPI: PUBLISHED 0.1.0
+SITE: LIVE at https://primalaiagents.com
 ```
 
 ---
