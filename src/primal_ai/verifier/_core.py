@@ -21,6 +21,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from primal_ai.observability import record_exception, span
 from primal_ai.verifier._protocol import VerifierLayer
 from primal_ai.verifier._verdict import Verdict, VerdictStatus
 
@@ -181,18 +182,38 @@ class Verifier:
         is_trajectory = hasattr(output, "replay")
         resolved = _resolve_layers(layers)
 
-        verdicts: list[Verdict] = []
-        for layer in resolved:
-            target = cls._target_for_layer(layer, output, is_trajectory)
-            verdicts.append(cls._run_layer(layer, target))
+        with span(
+            "primal.verifier.audit",
+            {
+                "primal.verifier.layer_count_planned": len(resolved),
+                "primal.verifier.target_kind": (
+                    "trajectory" if is_trajectory else "output"
+                ),
+            },
+        ) as audit_span:
+            verdicts: list[Verdict] = []
+            for layer in resolved:
+                target = cls._target_for_layer(layer, output, is_trajectory)
+                verdicts.append(cls._run_layer(layer, target))
 
-        return {
-            "status": _aggregate_status(verdicts).value,
-            "verdicts": [v.to_dict() for v in verdicts],
-            "aggregate_confidence": _aggregate_confidence(verdicts),
-            "total_cost": _aggregate_cost(verdicts),
-            "layer_count": len(verdicts),
-        }
+            aggregated = _aggregate_status(verdicts).value
+            confidence = _aggregate_confidence(verdicts)
+            cost = _aggregate_cost(verdicts)
+            audit_span.set_attribute("primal.verifier.status", aggregated)
+            audit_span.set_attribute("primal.verifier.layer_count", len(verdicts))
+            audit_span.set_attribute("primal.verifier.confidence", confidence)
+            if cost is not None:
+                audit_span.set_attribute("primal.verifier.total_cost", cost)
+            if aggregated == VerdictStatus.FAIL.value:
+                audit_span.set_status(_otel_error_status("verdict FAIL"))
+
+            return {
+                "status": aggregated,
+                "verdicts": [v.to_dict() for v in verdicts],
+                "aggregate_confidence": confidence,
+                "total_cost": cost,
+                "layer_count": len(verdicts),
+            }
 
     @classmethod
     def set_default_layers(
@@ -237,32 +258,74 @@ class Verifier:
     def _run_layer(layer: VerifierLayer, target: Any) -> Verdict:
         """Invoke ``layer.verify(target)``; convert exceptions to UNCERTAIN verdicts."""
         name = getattr(layer, "name", layer.__class__.__name__)
-        started = time.monotonic()
-        try:
-            verdict = layer.verify(target)
-        except Exception as exc:  # noqa: BLE001 — broken layer must not kill the chain
-            latency_ms = (time.monotonic() - started) * 1000.0
-            return Verdict(
-                verifier_name=name,
-                status=VerdictStatus.UNCERTAIN,
-                confidence=0.0,
-                reasons=[f"verifier {name!r} raised: {type(exc).__name__}: {exc}"],
-                details={"exception_type": type(exc).__name__},
-                latency_ms=latency_ms,
+        with span(
+            "primal.verifier.layer",
+            {"primal.verifier.layer.name": name},
+        ) as layer_span:
+            started = time.monotonic()
+            try:
+                verdict = layer.verify(target)
+            except Exception as exc:  # noqa: BLE001 — broken layer must not kill chain
+                latency_ms = (time.monotonic() - started) * 1000.0
+                record_exception(exc)
+                layer_span.set_attribute(
+                    "primal.verifier.layer.status", VerdictStatus.UNCERTAIN.value,
+                )
+                layer_span.set_attribute(
+                    "primal.verifier.layer.latency_ms", latency_ms,
+                )
+                layer_span.set_status(_otel_error_status(str(exc)))
+                return Verdict(
+                    verifier_name=name,
+                    status=VerdictStatus.UNCERTAIN,
+                    confidence=0.0,
+                    reasons=[
+                        f"verifier {name!r} raised: {type(exc).__name__}: {exc}",
+                    ],
+                    details={"exception_type": type(exc).__name__},
+                    latency_ms=latency_ms,
+                )
+            if verdict.latency_ms is None:
+                latency_ms = (time.monotonic() - started) * 1000.0
+                verdict = Verdict(
+                    verifier_name=verdict.verifier_name,
+                    status=verdict.status,
+                    confidence=verdict.confidence,
+                    reasons=verdict.reasons,
+                    details=verdict.details,
+                    cost=verdict.cost,
+                    latency_ms=latency_ms,
+                )
+            layer_span.set_attribute(
+                "primal.verifier.layer.status", verdict.status.value,
             )
-        # If the layer forgot to populate latency_ms, fill it in.
-        if verdict.latency_ms is None:
-            latency_ms = (time.monotonic() - started) * 1000.0
-            return Verdict(
-                verifier_name=verdict.verifier_name,
-                status=verdict.status,
-                confidence=verdict.confidence,
-                reasons=verdict.reasons,
-                details=verdict.details,
-                cost=verdict.cost,
-                latency_ms=latency_ms,
+            layer_span.set_attribute(
+                "primal.verifier.layer.confidence", verdict.confidence,
             )
-        return verdict
+            if verdict.latency_ms is not None:
+                layer_span.set_attribute(
+                    "primal.verifier.layer.latency_ms", verdict.latency_ms,
+                )
+            if verdict.cost is not None:
+                layer_span.set_attribute(
+                    "primal.verifier.layer.cost", verdict.cost,
+                )
+            if verdict.status == VerdictStatus.FAIL:
+                layer_span.set_status(_otel_error_status("layer verdict FAIL"))
+            return verdict
+
+
+def _otel_error_status(description: str) -> Any:
+    """Return an OTel ``Status(StatusCode.ERROR, description)`` or ``None``.
+
+    Deferred import keeps Verifier import-safe when ``opentelemetry-api``
+    isn't installed.
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ImportError:
+        return None
+    return Status(StatusCode.ERROR, description)
 
 
 __all__ = [

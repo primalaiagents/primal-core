@@ -29,6 +29,7 @@ from primal_ai.atlas.bandit import (
     _safe_update,
     resolve_selector,
 )
+from primal_ai.observability import record_exception, span
 
 # Module-level singletons. Reset between tests via ``Atlas.reset_health``
 # / ``unregister_provider``; there is no global "clear all" by design.
@@ -197,9 +198,18 @@ class Atlas:
         chosen — the ``RoutingDecision.status`` (recorded on the active
         trajectory and emitted on the shared bus) carries the reason.
         """
-        decision = cls._decide(task, candidates, context)
-        cls._record_routing_decision(decision)
-        return decision.chosen_provider or ""
+        ctx = context or {}
+        with span(
+            "primal.atlas.route",
+            {
+                "primal.atlas.task": task,
+                "primal.atlas.context.capability": str(ctx.get("capability") or ""),
+            },
+        ) as route_span:
+            decision = cls._decide(task, candidates, context)
+            _decorate_route_span(route_span, decision)
+            cls._record_routing_decision(decision)
+            return decision.chosen_provider or ""
 
     @classmethod
     def invoke(
@@ -219,44 +229,67 @@ class Atlas:
         single base-cooldown penalty (Cascade owns the exponential
         backoff policy when callers care about retries).
         """
-        decision = cls._decide(task, candidates, context)
-        cls._record_routing_decision(decision)
+        ctx = context or {}
+        with span(
+            "primal.atlas.route",
+            {
+                "primal.atlas.task": task,
+                "primal.atlas.context.capability": str(ctx.get("capability") or ""),
+            },
+        ) as route_span:
+            decision = cls._decide(task, candidates, context)
+            _decorate_route_span(route_span, decision)
+            cls._record_routing_decision(decision)
 
-        if decision.chosen_provider is None:
-            return "", None
+            if decision.chosen_provider is None:
+                return "", None
 
-        provider = _REGISTRY.get(decision.chosen_provider)
-        health = _REGISTRY.get_health(decision.chosen_provider)
-        if provider is None or health is None:
-            return decision.chosen_provider, None
+            provider = _REGISTRY.get(decision.chosen_provider)
+            health = _REGISTRY.get_health(decision.chosen_provider)
+            if provider is None or health is None:
+                return decision.chosen_provider, None
 
-        selector = _resolve_selector_for_call(context)
-        bandit_ctx_key = _bandit_context_key(context)
-        try:
-            result = provider.invoke(task, **kwargs)
-        except Exception:  # noqa: BLE001 — convert any exception to a failure record
-            health.record_failure(cooldown_seconds=_DEFAULT_FAILURE_COOLDOWN_S)
-            _safe_update(
-                selector,
-                BanditOutcome(
-                    provider_name=decision.chosen_provider,
-                    success=False,
-                    reward=0.0,
-                    context_key=bandit_ctx_key,
-                ),
-            )
-            return decision.chosen_provider, None
-        health.record_success()
-        _safe_update(
-            selector,
-            BanditOutcome(
-                provider_name=decision.chosen_provider,
-                success=True,
-                reward=1.0,
-                context_key=bandit_ctx_key,
-            ),
-        )
-        return decision.chosen_provider, result
+            selector = _resolve_selector_for_call(context)
+            bandit_ctx_key = _bandit_context_key(context)
+            with span(
+                "primal.atlas.provider",
+                {"primal.atlas.provider.name": decision.chosen_provider},
+            ) as provider_span:
+                try:
+                    result = provider.invoke(task, **kwargs)
+                except Exception as exc:  # noqa: BLE001
+                    health.record_failure(
+                        cooldown_seconds=_DEFAULT_FAILURE_COOLDOWN_S,
+                    )
+                    _safe_update(
+                        selector,
+                        BanditOutcome(
+                            provider_name=decision.chosen_provider,
+                            success=False,
+                            reward=0.0,
+                            context_key=bandit_ctx_key,
+                        ),
+                    )
+                    provider_span.set_attribute(
+                        "primal.atlas.provider.status", "FAILED",
+                    )
+                    provider_span.set_status(_otel_error_status(str(exc)))
+                    record_exception(exc)
+                    return decision.chosen_provider, None
+                health.record_success()
+                _safe_update(
+                    selector,
+                    BanditOutcome(
+                        provider_name=decision.chosen_provider,
+                        success=True,
+                        reward=1.0,
+                        context_key=bandit_ctx_key,
+                    ),
+                )
+                provider_span.set_attribute(
+                    "primal.atlas.provider.status", "SUCCESS",
+                )
+                return decision.chosen_provider, result
 
     # ──────────────────────────────────────────────────────────────────
     # Internals
@@ -360,6 +393,7 @@ class Atlas:
 
         ended = time.time()
         duration_ms = (time.monotonic() - started_mono) * 1000.0
+
         return RoutingDecision(
             decision_id=uuid.uuid4().hex,
             task=task,
@@ -450,6 +484,40 @@ def _select_via_bandit(
         chosen, scores, exploration = rich(candidates, context)
         return chosen, dict(scores) if scores else None, exploration
     return selector.select(candidates, context), None, None
+
+
+def _decorate_route_span(route_span: Any, decision: RoutingDecision) -> None:
+    """Apply decision-derived attributes to the active ``primal.atlas.route`` span."""
+    route_span.set_attribute("primal.atlas.status", decision.status.value)
+    route_span.set_attribute(
+        "primal.atlas.candidates_count", len(decision.candidates_considered),
+    )
+    route_span.set_attribute(
+        "primal.atlas.candidates_skipped", len(decision.candidates_skipped),
+    )
+    route_span.set_attribute("primal.atlas.duration_ms", decision.duration_ms)
+    if decision.chosen_provider is not None:
+        route_span.set_attribute(
+            "primal.atlas.chosen_provider", decision.chosen_provider,
+        )
+    if decision.reason is not None:
+        route_span.set_attribute("primal.atlas.reason", decision.reason)
+        route_span.set_status(_otel_error_status(decision.reason))
+    if decision.selector_name is not None:
+        route_span.set_attribute("primal.atlas.selector", decision.selector_name)
+
+
+def _otel_error_status(description: str) -> Any:
+    """Return an OTel ``Status(StatusCode.ERROR, description)`` or ``None``.
+
+    Deferred import keeps Atlas import-safe when ``opentelemetry-api``
+    isn't installed.
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ImportError:
+        return None
+    return Status(StatusCode.ERROR, description)
 
 
 __all__ = ["Atlas", "register_provider", "unregister_provider"]

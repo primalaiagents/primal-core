@@ -14,9 +14,10 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextvars import Token
 from types import TracebackType
-from typing import Any
+from typing import Any, ClassVar
 
 from primal_ai._trajectory_context import current_trajectory
+from primal_ai.observability import record_exception, span
 from primal_ai.storage import Storage
 from primal_ai.trajectory._status import TrajectoryStatus
 from primal_ai.trajectory._step import Step, StepKind
@@ -98,6 +99,14 @@ class Trajectory:
         self._steps_lock = threading.Lock()
         # Token returned by ``ContextVar.set`` on __enter__, consumed on __exit__.
         self._context_token: Token[Any] | None = None
+        # Open OTel span scope held across the with-block. Both slots are
+        # ``Any`` to avoid leaking opentelemetry into our type surface.
+        self._otel_span_cm: Any = None
+        self._otel_span: Any = None
+        # step_id → (otel-span-cm, otel-span). Filled on record_*_call,
+        # drained on record_*_result. Anything left over at __exit__ is
+        # ended with the ``orphaned`` attribute.
+        self._open_step_spans: dict[str, tuple[Any, Any]] = {}
 
     # ──────────────────────────────────────────────────────────────────
     # Construction / context manager
@@ -123,6 +132,17 @@ class Trajectory:
         self.started_at = time.time()
         self._monotonic_start = time.monotonic()
         self.status = TrajectoryStatus.RUNNING
+        # Open the OTel root span first so any pillar span created from
+        # inside the with-block becomes a child of this one.
+        self._otel_span_cm = span(
+            "primal.trajectory.session",
+            {
+                "primal.trajectory.id": self.trajectory_id,
+                "primal.trajectory.agent_id": self.agent_id or "",
+                "primal.trajectory.parent_id": self.parent_trajectory_id or "",
+            },
+        )
+        self._otel_span = self._otel_span_cm.__enter__()
         # Publish self as the active trajectory for this context (thread or
         # async task). Conductor.delegate reads this to record AGENT_HANDOFF
         # steps without either pillar reaching into the other.
@@ -149,6 +169,49 @@ class Trajectory:
         self.ended_at = time.time()
         self._monotonic_end = time.monotonic()
 
+        # Close any open paired spans that never got a result. They show
+        # up in traces as completed-but-orphaned so users can see partial
+        # tool/llm invocations clearly. When the trajectory exits via an
+        # exception we forward ``(exc_type, exc, tb)`` to each open span's
+        # ``__exit__`` so OTel records the exception + sets ERROR status
+        # on the in-flight tool/llm spans (not just the session span).
+        for call_id, (cm, s) in list(self._open_step_spans.items()):
+            s.set_attribute("primal.trajectory.orphaned", True)
+            cm.__exit__(exc_type, exc, tb)
+            self._open_step_spans.pop(call_id, None)
+
+        # Decorate the OTel span before closing it.
+        if self._otel_span is not None:
+            summary = self.summary()
+            self._otel_span.set_attribute(
+                "primal.trajectory.status", self.status.value,
+            )
+            self._otel_span.set_attribute(
+                "primal.trajectory.step_count", summary["step_count"],
+            )
+            duration_ms = summary["duration_ms"]
+            if duration_ms is not None:
+                self._otel_span.set_attribute(
+                    "primal.trajectory.duration_ms", duration_ms,
+                )
+            self._otel_span.set_attribute(
+                "primal.trajectory.total_cost", summary["total_cost"],
+            )
+            # Rollups by step kind so traces can be filtered by activity
+            # type without scanning span events.
+            for kind, count in summary["step_kinds"].items():
+                self._otel_span.set_attribute(
+                    f"primal.trajectory.step_kinds.{kind.lower()}", count,
+                )
+            if exc is not None:
+                record_exception(exc)
+                self._otel_span.set_status(_otel_error_status(str(exc)))
+
+        if self._otel_span_cm is not None:
+            self._otel_span_cm.__exit__(exc_type, exc, tb)
+            self._otel_span_cm = None
+            self._otel_span = None
+
         store = _get_default_store()
         if store is not None:
             self.save(store)
@@ -158,12 +221,30 @@ class Trajectory:
     # Step recording
     # ──────────────────────────────────────────────────────────────────
 
+    # Step kinds that flow through the paired-span machinery (T06).
+    _PAIRED_KINDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            StepKind.TOOL_CALL.value,
+            StepKind.TOOL_RESULT.value,
+            StepKind.LLM_CALL.value,
+            StepKind.LLM_RESULT.value,
+        },
+    )
+
     def add_step(self, step: Step | dict[str, Any]) -> Step:
         """Append a ``Step`` (or a dict, coerced via ``Step.from_dict``)."""
         if isinstance(step, dict):
             step = Step.from_dict(step)
         with self._steps_lock:
             self._steps.append(step)
+        if step.kind not in self._PAIRED_KINDS and self._otel_span is not None:
+            self._otel_span.add_event(
+                "primal.trajectory.step",
+                {
+                    "primal.trajectory.step.kind": step.kind,
+                    "primal.trajectory.step.id": step.step_id,
+                },
+            )
         return step
 
     def record_input(self, data: dict[str, Any]) -> Step:
@@ -174,15 +255,55 @@ class Trajectory:
         """Record an OUTPUT step (the agent's final answer)."""
         return self.add_step(Step(kind=StepKind.OUTPUT.value, data=dict(data)))
 
+    def _start_step_span(
+        self, name: str, attrs: dict[str, Any], step_id: str,
+    ) -> None:
+        """Open a child span for a paired ``record_*_call`` step."""
+        cm = span(name, attrs)
+        s = cm.__enter__()
+        self._open_step_spans[step_id] = (cm, s)
+
+    def _end_step_span(
+        self,
+        call_step_id: str,
+        result_attrs: dict[str, Any],
+    ) -> None:
+        """End a child span opened by a matching ``record_*_call``.
+
+        If ``call_step_id`` doesn't match an open span, this is a no-op —
+        callers may legitimately pair a result against a synthetic id
+        (e.g. recovered from a serialized trajectory).
+        """
+        entry = self._open_step_spans.pop(call_step_id, None)
+        if entry is None:
+            return
+        cm, s = entry
+        for k, v in result_attrs.items():
+            if v is not None:
+                s.set_attribute(k, v)
+        cm.__exit__(None, None, None)
+
     def record_tool_call(self, tool_name: str, args: dict[str, Any]) -> Step:
         """Record a TOOL_CALL step. The returned step's ``step_id`` is the
         parent for the matching ``record_tool_result``."""
-        return self.add_step(
-            Step(
-                kind=StepKind.TOOL_CALL.value,
-                data={"tool_name": tool_name, "args": dict(args)},
-            )
+        step = Step(
+            kind=StepKind.TOOL_CALL.value,
+            data={"tool_name": tool_name, "args": dict(args)},
         )
+        # We open the OTel span *before* appending so the span captures
+        # creation time accurately (add_step takes a lock).
+        if self._otel_span is not None:
+            self._start_step_span(
+                "primal.trajectory.tool_call",
+                {
+                    "primal.trajectory.tool_name": tool_name,
+                    "primal.trajectory.step.id": step.step_id,
+                },
+                step.step_id,
+            )
+        with self._steps_lock:
+            self._steps.append(step)
+        return step
 
     def record_tool_result(
         self,
@@ -192,15 +313,25 @@ class Trajectory:
         latency_ms: float | None = None,
     ) -> Step:
         """Record a TOOL_RESULT step linked to a prior TOOL_CALL."""
-        return self.add_step(
-            Step(
-                kind=StepKind.TOOL_RESULT.value,
-                data={"result": result},
-                cost=cost,
-                latency_ms=latency_ms,
-                parent_step_id=tool_call_step_id,
-            )
+        step = Step(
+            kind=StepKind.TOOL_RESULT.value,
+            data={"result": result},
+            cost=cost,
+            latency_ms=latency_ms,
+            parent_step_id=tool_call_step_id,
         )
+        # End the matching span before appending the result step.
+        if self._otel_span is not None:
+            self._end_step_span(
+                tool_call_step_id,
+                {
+                    "primal.trajectory.cost": cost,
+                    "primal.trajectory.latency_ms": latency_ms,
+                },
+            )
+        with self._steps_lock:
+            self._steps.append(step)
+        return step
 
     def record_llm_call(
         self,
@@ -209,12 +340,22 @@ class Trajectory:
     ) -> Step:
         """Record an LLM_CALL step. The returned step's ``step_id`` is the
         parent for the matching ``record_llm_result``."""
-        return self.add_step(
-            Step(
-                kind=StepKind.LLM_CALL.value,
-                data={"model": model, "messages": list(messages)},
-            )
+        step = Step(
+            kind=StepKind.LLM_CALL.value,
+            data={"model": model, "messages": list(messages)},
         )
+        if self._otel_span is not None:
+            self._start_step_span(
+                "primal.trajectory.llm_call",
+                {
+                    "primal.trajectory.model": model,
+                    "primal.trajectory.step.id": step.step_id,
+                },
+                step.step_id,
+            )
+        with self._steps_lock:
+            self._steps.append(step)
+        return step
 
     def record_llm_result(
         self,
@@ -225,15 +366,24 @@ class Trajectory:
         latency_ms: float | None = None,
     ) -> Step:
         """Record an LLM_RESULT step linked to a prior LLM_CALL."""
-        return self.add_step(
-            Step(
-                kind=StepKind.LLM_RESULT.value,
-                data={"response": response, "tokens": tokens},
-                cost=cost,
-                latency_ms=latency_ms,
-                parent_step_id=llm_call_step_id,
-            )
+        step = Step(
+            kind=StepKind.LLM_RESULT.value,
+            data={"response": response, "tokens": tokens},
+            cost=cost,
+            latency_ms=latency_ms,
+            parent_step_id=llm_call_step_id,
         )
+        if self._otel_span is not None:
+            self._end_step_span(
+                llm_call_step_id,
+                {
+                    "primal.trajectory.cost": cost,
+                    "primal.trajectory.latency_ms": latency_ms,
+                },
+            )
+        with self._steps_lock:
+            self._steps.append(step)
+        return step
 
     def record_error(self, exc: BaseException) -> Step:
         """Record an ERROR step capturing exception type, message, and traceback."""
@@ -378,6 +528,21 @@ class Trajectory:
         if payload is None:
             raise KeyError(f"trajectory not found: {trajectory_id}")
         return cls.from_dict(payload)
+
+
+def _otel_error_status(description: str) -> Any:
+    """Return an OTel ``Status(StatusCode.ERROR, description)`` or ``None``.
+
+    Imports are deferred so the trajectory module stays import-safe when
+    ``opentelemetry-api`` isn't installed. The returned object is passed
+    straight back to ``Span.set_status`` (which is a no-op on the shim's
+    NoOpSpan).
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ImportError:
+        return None
+    return Status(StatusCode.ERROR, description)
 
 
 __all__ = ["Trajectory", "set_default_store"]

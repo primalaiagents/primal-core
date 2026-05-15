@@ -58,6 +58,9 @@ htmlcov/
 # Claude Code (local tool config / permissions)
 .claude/
 
+# Local implementation plans (Superpowers writing-plans output)
+docs/superpowers/
+
 # OS
 .DS_Store
 Thumbs.db
