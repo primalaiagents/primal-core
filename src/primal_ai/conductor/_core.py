@@ -26,6 +26,7 @@ from primal_ai._trajectory_context import current_trajectory
 from primal_ai.conductor._card import AgentCard, Capability
 from primal_ai.conductor._delegation import DelegationResult, DelegationStatus
 from primal_ai.conductor._registry import AgentRegistry
+from primal_ai.observability import span
 
 if TYPE_CHECKING:
     from primal_ai.conductor._agent import Agent
@@ -187,49 +188,81 @@ class Conductor:
         started = time.time()
         started_mono = time.monotonic()
 
-        target, refusal_reason = cls._resolve_target(agents, capability, input)
-        if target is None:
-            return cls._refused(
-                task=task,
-                input=input,
-                capability=capability,
-                from_agent=from_agent,
-                reason=refusal_reason or "no target specified",
-                started_at=started,
+        with span(
+            "primal.conductor.delegate",
+            {
+                "primal.conductor.from_agent": from_agent or "",
+                "primal.conductor.capability": capability or "",
+                "primal.conductor.task": task,
+            },
+        ) as delegate_span:
+            target, refusal_reason = cls._resolve_target(agents, capability, input)
+            if target is None:
+                refused = cls._refused(
+                    task=task,
+                    input=input,
+                    capability=capability,
+                    from_agent=from_agent,
+                    reason=refusal_reason or "no target specified",
+                    started_at=started,
+                )
+                delegate_span.set_attribute(
+                    "primal.conductor.status", refused.status.value,
+                )
+                delegate_span.set_attribute(
+                    "primal.conductor.reason", refused.reason or "",
+                )
+                delegate_span.set_status(_otel_error_status(refused.reason or ""))
+                return refused
+
+            cls._publish(
+                EventKind.DELEGATION_STARTED.value,
+                {
+                    "from_agent": from_agent,
+                    "to_agent": target.name,
+                    "capability": capability,
+                    "task": task,
+                },
             )
 
-        cls._publish(
-            EventKind.DELEGATION_STARTED.value,
-            {
-                "from_agent": from_agent,
-                "to_agent": target.name,
-                "capability": capability,
-                "task": task,
-            },
-        )
+            status, output, reason = cls._invoke_target(
+                target, input, timeout_seconds,
+            )
+            ended = time.time()
+            duration_ms = (time.monotonic() - started_mono) * 1000.0
 
-        status, output, reason = cls._invoke_target(target, input, timeout_seconds)
-        ended = time.time()
-        duration_ms = (time.monotonic() - started_mono) * 1000.0
+            result = DelegationResult(
+                delegation_id=uuid.uuid4().hex,
+                from_agent=from_agent,
+                to_agent=target.name,
+                capability=capability,
+                task=task,
+                input=input,
+                output=output,
+                status=status,
+                reason=reason,
+                started_at=started,
+                ended_at=ended,
+                duration_ms=duration_ms,
+            )
 
-        result = DelegationResult(
-            delegation_id=uuid.uuid4().hex,
-            from_agent=from_agent,
-            to_agent=target.name,
-            capability=capability,
-            task=task,
-            input=input,
-            output=output,
-            status=status,
-            reason=reason,
-            started_at=started,
-            ended_at=ended,
-            duration_ms=duration_ms,
-        )
+            delegate_span.set_attribute("primal.conductor.to_agent", target.name)
+            delegate_span.set_attribute(
+                "primal.conductor.status", result.status.value,
+            )
+            delegate_span.set_attribute(
+                "primal.conductor.duration_ms", duration_ms,
+            )
+            if result.reason is not None:
+                delegate_span.set_attribute(
+                    "primal.conductor.reason", result.reason,
+                )
+            if result.status != DelegationStatus.SUCCESS:
+                delegate_span.set_status(_otel_error_status(result.reason or ""))
 
-        cls._record_handoff(result)
-        cls._publish_result(result)
-        return result
+            cls._record_handoff(result)
+            cls._publish_result(result)
+            return result
 
     # ──────────────────────────────────────────────────────────────────
     # Internals
@@ -385,6 +418,19 @@ def _find_capability(card: AgentCard, name: str) -> Capability | None:
         if cap.name == name:
             return cap
     return None
+
+
+def _otel_error_status(description: str) -> Any:
+    """Return an OTel ``Status(StatusCode.ERROR, description)`` or ``None``.
+
+    Deferred import keeps Conductor import-safe when ``opentelemetry-api``
+    isn't installed.
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ImportError:
+        return None
+    return Status(StatusCode.ERROR, description)
 
 
 __all__ = ["Conductor", "register_agent", "unregister_agent"]

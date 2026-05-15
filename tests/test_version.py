@@ -1,10 +1,10 @@
-"""Version pin — guards against accidental version bumps in scaffolding."""
+"""Version pin — guards against accidental version bumps."""
 
 from __future__ import annotations
 
 
 def test_version() -> None:
-    """``primal_ai.__version__`` is the pre-alpha 0.0.1 scaffolding marker."""
+    """``primal_ai.__version__`` matches the published 0.2.0 release."""
     from primal_ai import __version__
 
-    assert __version__ == "0.0.1"
+    assert __version__ == "0.2.0"

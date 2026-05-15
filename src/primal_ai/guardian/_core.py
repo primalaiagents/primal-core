@@ -16,6 +16,7 @@ from contextvars import ContextVar
 from typing import Any, cast
 
 from primal_ai.guardian._policy import Policy, PolicyViolation
+from primal_ai.observability import add_event, record_exception, span
 
 _logger = logging.getLogger("primal_ai.guardian")
 
@@ -91,7 +92,25 @@ def _handle_violation(v: PolicyViolation) -> None:
     buf = _dry_run_violations.get()
     if buf is not None:
         buf.append(v)
+        add_event(
+            "primal.guardian.violation",
+            {
+                "primal.guardian.policy": v.policy_name,
+                "primal.guardian.reason": v.reason,
+                "primal.guardian.phase": v.phase,
+                "primal.guardian.dry_run": True,
+            },
+        )
         return
+    add_event(
+        "primal.guardian.violation",
+        {
+            "primal.guardian.policy": v.policy_name,
+            "primal.guardian.reason": v.reason,
+            "primal.guardian.phase": v.phase,
+            "primal.guardian.dry_run": False,
+        },
+    )
     Guardian.escalate(v)
     raise v
 
@@ -250,9 +269,29 @@ def _build_sync_wrapper(
     """Build a synchronous wrapper closure."""
 
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        _run_pre(resolved, args, kwargs)
-        result = agent(*args, **kwargs)
-        return _run_post(resolved, args, kwargs, result)
+        with span(
+            "primal.guardian.invoke",
+            {
+                "primal.guardian.policy_count": len(resolved),
+                "primal.guardian.dry_run": _dry_run_violations.get() is not None,
+            },
+        ) as s:
+            try:
+                _run_pre(resolved, args, kwargs)
+                result = agent(*args, **kwargs)
+                final = _run_post(resolved, args, kwargs, result)
+            except PolicyViolation as exc:
+                s.set_attribute("primal.guardian.status", "VIOLATION")
+                s.set_status(_otel_error_status(exc.reason))
+                record_exception(exc)
+                raise
+            except BaseException as exc:
+                s.set_attribute("primal.guardian.status", "AGENT_ERROR")
+                s.set_status(_otel_error_status(str(exc)))
+                record_exception(exc)
+                raise
+            s.set_attribute("primal.guardian.status", "OK")
+            return final
 
     return wrapper
 
@@ -263,11 +302,44 @@ def _build_async_wrapper(
     """Build an asynchronous wrapper coroutine function."""
 
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        _run_pre(resolved, args, kwargs)
-        result = await agent(*args, **kwargs)
-        return _run_post(resolved, args, kwargs, result)
+        with span(
+            "primal.guardian.invoke",
+            {
+                "primal.guardian.policy_count": len(resolved),
+                "primal.guardian.dry_run": _dry_run_violations.get() is not None,
+            },
+        ) as s:
+            try:
+                _run_pre(resolved, args, kwargs)
+                result = await agent(*args, **kwargs)
+                final = _run_post(resolved, args, kwargs, result)
+            except PolicyViolation as exc:
+                s.set_attribute("primal.guardian.status", "VIOLATION")
+                s.set_status(_otel_error_status(exc.reason))
+                record_exception(exc)
+                raise
+            except BaseException as exc:
+                s.set_attribute("primal.guardian.status", "AGENT_ERROR")
+                s.set_status(_otel_error_status(str(exc)))
+                record_exception(exc)
+                raise
+            s.set_attribute("primal.guardian.status", "OK")
+            return final
 
     return wrapper
+
+
+def _otel_error_status(description: str) -> Any:
+    """Return an OTel ``Status(StatusCode.ERROR, description)`` or ``None``.
+
+    Deferred import keeps Guardian import-safe when ``opentelemetry-api``
+    isn't installed.
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ImportError:
+        return None
+    return Status(StatusCode.ERROR, description)
 
 
 __all__ = ["Guardian"]

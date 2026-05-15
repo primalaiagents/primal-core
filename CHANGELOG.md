@@ -5,6 +5,64 @@ All notable changes to PRIMAL (`primal-ai`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-15
+
+### Added
+
+- **OpenTelemetry span emission across five pillars** (`Trajectory`,
+  `Guardian`, `Verifier`, `Conductor`, `Atlas`). PRIMAL now plugs natively
+  into Datadog, Honeycomb, Grafana Tempo, New Relic, and any other
+  OTel-compatible host with no user wiring — install `primal-ai[otel]`,
+  configure a TracerProvider, and PRIMAL spans appear alongside everything
+  else. Full span schema documented in `docs/observability.md`.
+- Optional `[otel]` install extra — only pulls in `opentelemetry-api`.
+  The core install still has zero runtime dependencies.
+
+### Architecture
+
+- Single shim module `primal_ai.observability` is the only place in the
+  codebase that imports from `opentelemetry`. When the API is missing,
+  every call site becomes a no-op `_NoOpSpan` without any pillar-side
+  branching.
+- Trajectory's existing `current_trajectory` `ContextVar` anchors a root
+  `primal.trajectory.session` span; pillar spans become children of it
+  automatically via OTel context propagation — no manual context plumbing
+  between pillars.
+- Paired trajectory steps (`TOOL_CALL`→`TOOL_RESULT`, `LLM_CALL`→`LLM_RESULT`)
+  emit a single span with start/end driven by the call/result pair.
+  Unpaired steps emit span events on the session span instead — duration-
+  bearing things stay as spans, zero-length steps don't clutter traces.
+- Orphaned tool/llm spans (no matching result) are closed at trajectory
+  exit with `primal.trajectory.orphaned=True`. When the trajectory fails,
+  the exception is recorded on every open call/result span — partial
+  invocations stay visible.
+- One consistent attribute schema across all five pillars: `*.status`,
+  `*.duration_ms`, `*.<noun>_count`, `*.reason`, sub-attrs under
+  `*.<sub>.<noun>`. OTel `Status.ERROR` set on every non-success status
+  so trace-UI error filters work without configuration.
+
+### Tests + tooling
+
+- 34 new OTel-specific tests using an in-memory exporter fixture
+  (session-scoped TracerProvider + per-test SimpleSpanProcessor — works
+  around OpenTelemetry's one-shot `set_tracer_provider`).
+- 268 existing tests + 34 new = 302 total. All passing under the new
+  `[dev]` extra.
+- `mypy --strict` clean across all source files.
+- `ruff check` clean.
+- Zero runtime dependencies in the base install (unchanged from 0.1.0).
+
+### Fixed
+
+- `tests/test_version.py` now expects `0.2.0` (was still pinned to the
+  pre-alpha `0.0.1` scaffolding marker — missed during the 0.1.0 release).
+
+### Backward compatibility
+
+- No public API changes. Existing 0.1.0 users can upgrade to 0.2.0 and
+  immediately see spans if they have an OTel collector configured;
+  otherwise the new code path is a silent no-op.
+
 ## [0.1.0] - 2026-05-14
 
 First public release. All seven pillars shipped as MVPs with zero runtime

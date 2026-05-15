@@ -25,6 +25,7 @@ from primal_ai._trajectory_context import current_trajectory
 from primal_ai.atlas._decision import RoutingStatus
 from primal_ai.atlas.bandit import BanditOutcome, _safe_update
 from primal_ai.atlas.router import Atlas
+from primal_ai.observability import record_exception, span
 
 
 @dataclass(frozen=True)
@@ -141,58 +142,86 @@ class Cascade:
         started = time.time()
         started_mono = time.monotonic()
 
-        Atlas.event_bus.publish(
-            Event(
-                kind=EventKind.CASCADE_STARTED.value,
-                payload={"cascade_id": cascade_id, "providers": list(self.providers)},
-            ),
-        )
-
-        attempts: list[_Attempt] = []
-        chosen: str | None = None
-        output: Any = None
-        final_status: RoutingStatus = RoutingStatus.FAILED
-
-        for name in self.providers:
-            attempt = self._try_provider(name, task, cascade_id, context, kwargs)
-            attempts.append(attempt)
-            if attempt.status == RoutingStatus.SUCCESS:
-                chosen = name
-                output = attempt.output
-                final_status = RoutingStatus.SUCCESS
-                break
-
-        # If every attempt was ALL_UNHEALTHY, surface that distinctly.
-        if final_status != RoutingStatus.SUCCESS and attempts and all(
-            a.status == RoutingStatus.ALL_UNHEALTHY for a in attempts
-        ):
-            final_status = RoutingStatus.ALL_UNHEALTHY
-
-        ended = time.time()
-        duration_ms = (time.monotonic() - started_mono) * 1000.0
-        result = CascadeResult(
-            cascade_id=cascade_id,
-            attempts=tuple((a.name, a.status, a.reason) for a in attempts),
-            chosen=chosen,
-            output=output,
-            status=final_status,
-            started_at=started,
-            ended_at=ended,
-            duration_ms=duration_ms,
-        )
-
-        Atlas.event_bus.publish(
-            Event(
-                kind=(
-                    EventKind.CASCADE_COMPLETED.value
-                    if final_status == RoutingStatus.SUCCESS
-                    else EventKind.CASCADE_FAILED.value
+        with span(
+            "primal.atlas.cascade",
+            {
+                "primal.atlas.cascade.id": cascade_id,
+                "primal.atlas.cascade.providers": len(self.providers),
+            },
+        ) as cascade_span:
+            Atlas.event_bus.publish(
+                Event(
+                    kind=EventKind.CASCADE_STARTED.value,
+                    payload={
+                        "cascade_id": cascade_id,
+                        "providers": list(self.providers),
+                    },
                 ),
-                payload={"result": result.to_dict()},
-            ),
-        )
-        self._record_cascade_to_trajectory(result)
-        return result
+            )
+
+            attempts: list[_Attempt] = []
+            chosen: str | None = None
+            output: Any = None
+            final_status: RoutingStatus = RoutingStatus.FAILED
+
+            for index, name in enumerate(self.providers):
+                attempt = self._try_provider(
+                    name, task, cascade_id, context, kwargs,
+                    attempt_index=index,
+                )
+                attempts.append(attempt)
+                if attempt.status == RoutingStatus.SUCCESS:
+                    chosen = name
+                    output = attempt.output
+                    final_status = RoutingStatus.SUCCESS
+                    break
+
+            if final_status != RoutingStatus.SUCCESS and attempts and all(
+                a.status == RoutingStatus.ALL_UNHEALTHY for a in attempts
+            ):
+                final_status = RoutingStatus.ALL_UNHEALTHY
+
+            ended = time.time()
+            duration_ms = (time.monotonic() - started_mono) * 1000.0
+            result = CascadeResult(
+                cascade_id=cascade_id,
+                attempts=tuple(
+                    (a.name, a.status, a.reason) for a in attempts
+                ),
+                chosen=chosen,
+                output=output,
+                status=final_status,
+                started_at=started,
+                ended_at=ended,
+                duration_ms=duration_ms,
+            )
+
+            cascade_span.set_attribute(
+                "primal.atlas.cascade.status", final_status.value,
+            )
+            cascade_span.set_attribute(
+                "primal.atlas.cascade.attempt_count", len(attempts),
+            )
+            cascade_span.set_attribute(
+                "primal.atlas.cascade.duration_ms", duration_ms,
+            )
+            if chosen is not None:
+                cascade_span.set_attribute("primal.atlas.cascade.chosen", chosen)
+            if final_status != RoutingStatus.SUCCESS:
+                cascade_span.set_status(_otel_error_status(final_status.value))
+
+            Atlas.event_bus.publish(
+                Event(
+                    kind=(
+                        EventKind.CASCADE_COMPLETED.value
+                        if final_status == RoutingStatus.SUCCESS
+                        else EventKind.CASCADE_FAILED.value
+                    ),
+                    payload={"result": result.to_dict()},
+                ),
+            )
+            self._record_cascade_to_trajectory(result)
+            return result
 
     # ──────────────────────────────────────────────────────────────────
     # Internals
@@ -205,54 +234,90 @@ class Cascade:
         cascade_id: str,
         context: dict[str, Any] | None,
         kwargs: dict[str, Any],
+        *,
+        attempt_index: int = 0,
     ) -> _Attempt:
         """Run one cascade attempt against a single provider."""
-        provider = Atlas.get_provider(name)
-        if provider is None:
-            attempt = _Attempt(name, RoutingStatus.NO_CANDIDATES, "not_registered")
-            self._publish_attempt(cascade_id, attempt)
-            return attempt
+        with span(
+            "primal.atlas.cascade.attempt",
+            {
+                "primal.atlas.cascade.id": cascade_id,
+                "primal.atlas.cascade.attempt.provider": name,
+                "primal.atlas.cascade.attempt.index": attempt_index,
+            },
+        ) as attempt_span:
+            provider = Atlas.get_provider(name)
+            if provider is None:
+                attempt = _Attempt(
+                    name, RoutingStatus.NO_CANDIDATES, "not_registered",
+                )
+                attempt_span.set_attribute(
+                    "primal.atlas.cascade.attempt.status", attempt.status.value,
+                )
+                attempt_span.set_status(_otel_error_status("not_registered"))
+                self._publish_attempt(cascade_id, attempt)
+                return attempt
 
-        health = Atlas.get_health(name)
-        if health is not None and not health.is_healthy():
-            attempt = _Attempt(name, RoutingStatus.ALL_UNHEALTHY, "in_cooldown")
-            self._publish_attempt(cascade_id, attempt)
-            return attempt
+            health = Atlas.get_health(name)
+            if health is not None and not health.is_healthy():
+                attempt = _Attempt(
+                    name, RoutingStatus.ALL_UNHEALTHY, "in_cooldown",
+                )
+                attempt_span.set_attribute(
+                    "primal.atlas.cascade.attempt.status", attempt.status.value,
+                )
+                attempt_span.set_status(_otel_error_status("in_cooldown"))
+                self._publish_attempt(cascade_id, attempt)
+                return attempt
 
-        bandit_ctx_key = (
-            "" if context is None else str(context.get("bandit_context_key") or "")
-        )
-        try:
-            output = provider.invoke(task, **kwargs)
-        except Exception as exc:  # noqa: BLE001 — convert any exception to FAILED
-            self._apply_exponential_cooldown(name)
+            bandit_ctx_key = (
+                ""
+                if context is None
+                else str(context.get("bandit_context_key") or "")
+            )
+            try:
+                output = provider.invoke(task, **kwargs)
+            except Exception as exc:  # noqa: BLE001
+                self._apply_exponential_cooldown(name)
+                _safe_update(
+                    Atlas.get_selector(),
+                    BanditOutcome(
+                        provider_name=name,
+                        success=False,
+                        reward=0.0,
+                        context_key=bandit_ctx_key,
+                    ),
+                )
+                attempt = _Attempt(
+                    name,
+                    RoutingStatus.FAILED,
+                    f"{type(exc).__name__}: {exc}",
+                )
+                attempt_span.set_attribute(
+                    "primal.atlas.cascade.attempt.status", attempt.status.value,
+                )
+                attempt_span.set_status(_otel_error_status(attempt.reason or ""))
+                record_exception(exc)
+                self._publish_attempt(cascade_id, attempt)
+                return attempt
+
+            if health is not None:
+                health.record_success()
             _safe_update(
                 Atlas.get_selector(),
                 BanditOutcome(
                     provider_name=name,
-                    success=False,
-                    reward=0.0,
+                    success=True,
+                    reward=1.0,
                     context_key=bandit_ctx_key,
                 ),
             )
-            attempt = _Attempt(name, RoutingStatus.FAILED, f"{type(exc).__name__}: {exc}")
+            attempt = _Attempt(name, RoutingStatus.SUCCESS, None, output=output)
+            attempt_span.set_attribute(
+                "primal.atlas.cascade.attempt.status", attempt.status.value,
+            )
             self._publish_attempt(cascade_id, attempt)
             return attempt
-
-        if health is not None:
-            health.record_success()
-        _safe_update(
-            Atlas.get_selector(),
-            BanditOutcome(
-                provider_name=name,
-                success=True,
-                reward=1.0,
-                context_key=bandit_ctx_key,
-            ),
-        )
-        attempt = _Attempt(name, RoutingStatus.SUCCESS, None, output=output)
-        self._publish_attempt(cascade_id, attempt)
-        return attempt
 
     def _apply_exponential_cooldown(self, provider_name: str) -> None:
         """Record a failure on ``provider_name`` with a doubled-from-base cooldown."""
@@ -297,6 +362,19 @@ class Cascade:
                     },
                 },
             )
+
+
+def _otel_error_status(description: str) -> Any:
+    """Return an OTel ``Status(StatusCode.ERROR, description)`` or ``None``.
+
+    Deferred import keeps cascade.py import-safe when ``opentelemetry-api``
+    isn't installed.
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ImportError:
+        return None
+    return Status(StatusCode.ERROR, description)
 
 
 __all__ = ["Cascade", "CascadeResult"]
