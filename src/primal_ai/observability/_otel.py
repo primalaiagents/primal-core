@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 _TRACER_NAME = "primal_ai"
-_TRACER_VERSION = "0.2.0"
+_TRACER_VERSION = "0.2.1"
 
 
 def _otel_available() -> bool:

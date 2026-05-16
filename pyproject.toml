@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "primal-ai"
-version = "0.2.0"
+version = "0.2.1"
 description = "The reliability and interoperability layer for AI agents."
 readme = "README.md"
 license = "Apache-2.0"
@@ -41,6 +41,32 @@ Changelog = "https://github.com/primalaiagents/primal-core/blob/main/CHANGELOG.m
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/primal_ai"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/README.md",
+  "/LICENSE",
+  "/CHANGELOG.md",
+  "/pyproject.toml",
+  "/docs/observability.md",
+]
+exclude = [
+  ".venv*",
+  "venv",
+  "brand",
+  "docs/superpowers",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".pytest_cache",
+  "__pycache__",
+  "*.pyc",
+  ".DS_Store",
+  "dist",
+  "build",
+  "*.egg-info",
+]
 
 [tool.mypy]
 strict = true
