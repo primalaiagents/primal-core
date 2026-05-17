@@ -5,6 +5,32 @@ All notable changes to PRIMAL (`primal-ai`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-16
+
+Patch release. Packaging-only fix — no API or behavior changes from 0.2.0.
+
+### Fixed
+
+- **Source distribution bloat.** The 0.2.0 sdist accidentally bundled the
+  local build venv and brand source assets, weighing in at 8.87 MB.
+  `pyproject.toml` now declares an explicit
+  `[tool.hatch.build.targets.sdist]` block with include/exclude lists
+  (excludes `.venv*`, `brand`, `docs/superpowers`, all cache dirs, and
+  build artifacts), bringing the 0.2.1 sdist under 200 KB.
+- Wheel was already correct in 0.2.0 — users installing via the default
+  `pip install primal-ai==0.2.0` got the right artifact. This release
+  only affects users who install with `--no-binary` or inspect the
+  source tarball.
+
+### Changed
+
+- `_TRACER_VERSION` constant in `primal_ai.observability._otel` bumped
+  to `0.2.1` to match the release. No behavior change.
+
+### Backward compatibility
+
+- No public API changes. Drop-in upgrade from 0.2.0.
+
 ## [0.2.0] - 2026-05-15
 
 ### Added
@@ -136,4 +162,6 @@ loop is functional end-to-end.
 - A2A v1.0 wire format is Phase 2.5; AgentCard is the precursor.
 - MCP bridge is Phase 2.5.
 
+[0.2.1]: https://github.com/primalaiagents/primal-core/releases/tag/v0.2.1
+[0.2.0]: https://github.com/primalaiagents/primal-core/releases/tag/v0.2.0
 [0.1.0]: https://github.com/primalaiagents/primal-core/releases/tag/v0.1.0
