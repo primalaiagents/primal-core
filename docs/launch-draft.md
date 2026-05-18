@@ -89,7 +89,9 @@ PRIMAL 0.2.1 is now live on PyPI:
 
 Stdlib-only at the core. Apache 2.0. Seven pillars + Storage. Built because I needed it.
 
-3/ **Guardian** wraps any callable with policies — rate limit, cost cap, PII redaction, schema validation, gated dangerous actions.4/ **Trajectory** is a black-box recorder for every run. Inputs, outputs, tool calls, errors, handoffs — one JSON record you can replay.
+3/ **Guardian** wraps any callable with policies — rate limit, cost cap, PII redaction, schema validation, gated dangerous actions.
+
+4/ **Trajectory** is a black-box recorder for every run. Inputs, outputs, tool calls, errors, handoffs — one JSON record you can replay.
 
 **Verifier** audits the output. Rule-based, LLM-judge, or domain-specific. PASS / FAIL / UNCERTAIN with reasons.
 
